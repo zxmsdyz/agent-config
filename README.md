@@ -8,7 +8,8 @@
 
 | 仓库内 | 部署到 | 作用 |
 |---|---|---|
-| `.tmux.conf` | `~/.tmux.conf` | tmux 配置；开启 `automatic-rename`，窗口名自动跟随 Claude Code 当前任务摘要（取 `pane_title` 剥掉 spinner），新 tab 不再是 `bash`、无需手动改名 |
+| `.tmux.conf` | `~/.tmux.conf` | tmux 配置；开启 `automatic-rename`，窗口名自动跟随 Claude Code 当前任务摘要（取 `pane_title` 剥掉 spinner），新 tab 不再是 `bash`、无需手动改名；pane 边框右端显示该 pane 的 CC peer 地址（见下一行脚本） |
+| `.claude/bin/tmux-cc-peer-label.sh` | `~/.claude/bin/tmux-cc-peer-label.sh` | 被 `pane-border-format` 的 `#()` 调用，查 `~/.claude/sessions/<pid>.json` 反查该 pane 的 Claude Code peer 地址：`⇄ 名字 sid` = 已注册 peer messaging（`SendMessage({to:"名字"})` 可直达）；`· 名字 sid (no-msg)` = 有会话但没开 messaging socket，`ListAgents` 看不到它 |
 | `.claude/settings.json` | `~/.claude/settings.json` | Claude Code 设置；`Stop` hook 调用下面的脚本弹 Windows 通知 |
 | `.claude/hooks/notify-done.sh` | `~/.claude/hooks/notify-done.sh` | Stop hook 入口：算好 tmux 标题/任务名，调同目录 `notify.ps1` |
 | `.claude/hooks/notify.ps1` | 随 `notify-done.sh` 同目录 | 弹 Windows toast + 用 WinRT OneCore 嗓音 **Yaoyao（女声）** 朗读任务名；找不到该嗓音则退回默认 |
