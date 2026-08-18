@@ -13,7 +13,7 @@
 | `.claude/settings.json` | `~/.claude/settings.json` | Claude Code 设置；`Stop` hook 调用下面的脚本弹 Windows 通知 |
 | `.claude/hooks/notify-done.sh` | `~/.claude/hooks/notify-done.sh` | Stop hook 入口：算好 tmux 标题/任务名，调同目录 `notify.ps1` |
 | `.claude/hooks/notify.ps1` | 随 `notify-done.sh` 同目录 | 弹 Windows toast + 用 WinRT OneCore 嗓音 **Yaoyao（女声）** 朗读任务名；找不到该嗓音则退回默认 |
-| `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `UserPromptSubmit` hook；按首条任务内容自动设置 tmux 窗口名，后续短追问不会覆盖 |
+| `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `UserPromptSubmit` hook；仅交互式 TUI 按首条任务内容设置 tmux 窗口名，`codex exec/review` 不会改名，后续短追问不会覆盖 |
 | `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 读取 Codex hook JSON，把首条 prompt 压成简短 pane/window 名 |
 | `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `notify` 入口；复用 Windows toast + 晓晓语音，在每轮完成时朗读 tmux 任务名 |
 
