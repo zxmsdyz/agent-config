@@ -1,6 +1,6 @@
 # claude-config
 
-个人 Claude Code + tmux 配置备份。
+个人 Claude Code、Codex CLI + tmux 配置备份。
 
 ## 文件映射
 
@@ -13,6 +13,9 @@
 | `.claude/settings.json` | `~/.claude/settings.json` | Claude Code 设置；`Stop` hook 调用下面的脚本弹 Windows 通知 |
 | `.claude/hooks/notify-done.sh` | `~/.claude/hooks/notify-done.sh` | Stop hook 入口：算好 tmux 标题/任务名，调同目录 `notify.ps1` |
 | `.claude/hooks/notify.ps1` | 随 `notify-done.sh` 同目录 | 弹 Windows toast + 用 WinRT OneCore 嗓音 **Yaoyao（女声）** 朗读任务名；找不到该嗓音则退回默认 |
+| `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `UserPromptSubmit` hook；按首条任务内容自动设置 tmux 窗口名，后续短追问不会覆盖 |
+| `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 读取 Codex hook JSON，把首条 prompt 压成简短 pane/window 名 |
+| `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `notify` 入口；复用 Windows toast + 晓晓语音，在每轮完成时朗读 tmux 任务名 |
 
 ## 安装（拷贝方式）
 
@@ -22,6 +25,11 @@ mkdir -p ~/.claude/hooks
 cp .claude/settings.json ~/.claude/settings.json
 cp .claude/hooks/notify-done.sh ~/.claude/hooks/notify-done.sh
 chmod +x ~/.claude/hooks/notify-done.sh
+mkdir -p ~/.codex/bin
+ln -s ~/claude-config/.codex/hooks.json ~/.codex/hooks.json
+ln -s ~/claude-config/.codex/bin/codex-pane-title.py ~/.codex/bin/codex-pane-title.py
+ln -s ~/claude-config/.codex/bin/codex-notify-done.sh ~/.codex/bin/codex-notify-done.sh
+chmod +x ~/claude-config/.codex/bin/*
 tmux source-file ~/.tmux.conf   # 让运行中的 tmux 立即生效
 ```
 
@@ -32,6 +40,8 @@ tmux source-file ~/.tmux.conf   # 让运行中的 tmux 立即生效
 
 - Windows toast 通知需 PowerShell 模块 `BurntToast`（`Install-Module BurntToast`）。
 - `notify-done.sh` 通过 WSL interop 调 `powershell.exe`，仅在 WSL 环境有效。
+- `~/.codex/config.toml` 需配置 `notify = ["bash", "/home/kalami/.codex/bin/codex-notify-done.sh"]`。
+- Codex 首次发现或脚本变更后会要求审核 hook；在 Codex 内运行 `/hooks` 并信任该用户级 hook。
 
 ## 不包含
 

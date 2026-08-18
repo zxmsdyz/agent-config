@@ -1,0 +1,16 @@
+{
+  "description": "Codex 会话的 tmux 自动命名",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 /home/kalami/.codex/bin/codex-pane-title.py",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
