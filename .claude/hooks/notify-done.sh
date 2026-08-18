@@ -24,7 +24,8 @@ fi
 
 # 本文件可能是指向仓库的软链——解析真实路径，定位同目录的 notify.ps1 / venv
 selfdir=$(dirname "$(readlink -f "$0")")
-edgetts="/home/kalami/claude-config/.venv/bin/edge-tts"
+repo_root=$(readlink -f "$selfdir/../..")
+edgetts="$repo_root/.venv/bin/edge-tts"
 
 # edge-tts 合成 mp3。all_proxy(socks5) 会干扰 wss，显式 -u 排除；只走 http 代理。
 # timeout 8s 防代理挂时 hook 卡死；失败/超时留空文件，交由 ps1 兜底。

@@ -19,8 +19,9 @@ if [ "$line" = "任务已完成" ]; then
 fi
 
 selfdir=$(dirname "$(readlink -f "$0")")
-notify_ps1="/home/kalami/claude-config/.claude/hooks/notify.ps1"
-edgetts="/home/kalami/claude-config/.venv/bin/edge-tts"
+repo_root=$(readlink -f "$selfdir/../..")
+notify_ps1="$repo_root/.claude/hooks/notify.ps1"
+edgetts="$repo_root/.venv/bin/edge-tts"
 mp3="$selfdir/_tts.mp3"
 rm -f "$mp3"
 

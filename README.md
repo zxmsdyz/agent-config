@@ -1,4 +1,4 @@
-# claude-config
+# agent-config
 
 个人 Claude Code、Codex CLI + tmux 配置备份。
 
@@ -26,10 +26,10 @@ cp .claude/settings.json ~/.claude/settings.json
 cp .claude/hooks/notify-done.sh ~/.claude/hooks/notify-done.sh
 chmod +x ~/.claude/hooks/notify-done.sh
 mkdir -p ~/.codex/bin
-ln -s ~/claude-config/.codex/hooks.json ~/.codex/hooks.json
-ln -s ~/claude-config/.codex/bin/codex-pane-title.py ~/.codex/bin/codex-pane-title.py
-ln -s ~/claude-config/.codex/bin/codex-notify-done.sh ~/.codex/bin/codex-notify-done.sh
-chmod +x ~/claude-config/.codex/bin/*
+ln -s ~/agent-config/.codex/hooks.json ~/.codex/hooks.json
+ln -s ~/agent-config/.codex/bin/codex-pane-title.py ~/.codex/bin/codex-pane-title.py
+ln -s ~/agent-config/.codex/bin/codex-notify-done.sh ~/.codex/bin/codex-notify-done.sh
+chmod +x ~/agent-config/.codex/bin/*
 tmux source-file ~/.tmux.conf   # 让运行中的 tmux 立即生效
 ```
 
