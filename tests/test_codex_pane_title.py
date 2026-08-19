@@ -46,8 +46,11 @@ class TitleCleaningTest(unittest.TestCase):
     def test_removes_spaces_and_punctuation(self) -> None:
         self.assertEqual(MODULE._clean_title("优化 Codex 窗格命名！"), "优化Codex窗格命名")
 
-    def test_limits_title_to_twelve_characters(self) -> None:
-        self.assertEqual(MODULE._clean_title("一二三四五六七八九十十一十二十三"), "一二三四五六七八九十十一")
+    def test_limits_title_to_twenty_four_characters(self) -> None:
+        self.assertEqual(
+            MODULE._clean_title("一二三四五六七八九十甲乙丙丁戊己庚辛壬癸天地玄黄宇"),
+            "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸天地玄黄",
+        )
 
     def test_rejects_punctuation_only_title(self) -> None:
         self.assertEqual(MODULE._clean_title("？！……"), "")
@@ -74,7 +77,10 @@ class FirstPromptInstructionTest(unittest.TestCase):
 
         output = json.loads(stdout.getvalue())
         context = output["hookSpecificOutput"]["additionalContext"]
-        self.assertIn("6 至 12 个字符", context)
+        self.assertIn("14 至 24 个字符", context)
+        self.assertIn("venue 或交易所", context)
+        self.assertIn("策略类型或下单通道", context)
+        self.assertIn("任务动作", context)
         self.assertIn("不能直接截取用户原句", context)
         self.assertIn("codex-pane-title.py --session-id", context)
         self.assertIn("--set '<短标题>'", context)

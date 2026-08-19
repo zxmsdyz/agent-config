@@ -13,7 +13,7 @@ import unicodedata
 from pathlib import Path
 
 
-MAX_TITLE_LENGTH = 12
+MAX_TITLE_LENGTH = 24
 DEFAULT_TITLE = "Codex"
 _PANE_SESSION_OPTION = "@codex_title_session_id"
 _PANE_STATUS_OPTION = "@codex_title_status"
@@ -223,8 +223,10 @@ def _handle_hook() -> int:
     quoted_session_id = shlex.quote(session_id)
     instruction = (
         "这是当前 Codex 会话的首次用户对话。开始分析、回复或调用其他工具前，"
-        "必须先概括用户本次要完成的核心任务，生成一个 6 至 12 个字符、约 10 个汉字的中文短标题。"
-        "标题要做语义总结，不能直接截取用户原句；不得包含空格、引号、句号、冒号等标点。"
+        "必须先概括用户本次要完成的核心任务，生成一个 14 至 24 个字符、约 20 个汉字的中文标题。"
+        "标题要做语义总结，不能直接截取用户原句；若上下文已提供，必须优先保留 venue 或交易所、"
+        "策略类型或下单通道、任务动作等关键信息，不得臆造未知信息；"
+        "不得包含空格、引号、句号、冒号等标点。"
         "随后立即调用 shell 命令："
         "python3 /home/kalami/.codex/bin/codex-pane-title.py "
         f"--session-id {quoted_session_id} --set '<短标题>'。"
