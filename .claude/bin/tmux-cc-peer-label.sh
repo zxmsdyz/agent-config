@@ -23,8 +23,8 @@ shopt -s nullglob
 for f in "$dir"/*.json; do
   grep -qF "\"tmux\":\"$key\"" "$f" || continue
   pid="${f##*/}"; pid="${pid%.json}"
-  [ -d "/proc/$pid" ] || continue          # 进程已死的陈旧注册项
-  t=$(stat -c %Y "$f" 2>/dev/null || echo 0)
+  kill -0 "$pid" 2>/dev/null || continue   # Linux / macOS 都可用的存活检查
+  t=$(stat -c %Y "$f" 2>/dev/null || stat -f %m "$f" 2>/dev/null || echo 0)
   if [ "$t" -ge "$best_t" ]; then best_t=$t; best="$f"; fi
 done
 [ -n "$best" ] || exit 0

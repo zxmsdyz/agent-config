@@ -72,13 +72,10 @@ def _is_codex_executable(executable: str) -> bool:
     return Path(executable).name in {"codex", "codex.exe"}
 
 
-def _is_interactive_codex_process(start_pid: int | None = None) -> bool:
-    """沿进程祖先查找 Codex，并只放行无子命令的交互 TUI。"""
-    pid = os.getppid() if start_pid is None else start_pid
-    visited: set[int] = set()
-    while pid > 1 and pid not in visited:
-        visited.add(pid)
-        proc_dir = Path("/proc") / str(pid)
+def _process_info(pid: int) -> tuple[list[str], int] | None:
+    """读取进程命令行和父 PID，同时兼容 Linux / WSL 与 macOS。"""
+    proc_dir = Path("/proc") / str(pid)
+    if proc_dir.is_dir():
         try:
             argv = [
                 part.decode("utf-8", errors="replace")
@@ -89,8 +86,39 @@ def _is_interactive_codex_process(start_pid: int | None = None) -> bool:
             parent_pid = int(
                 next(line for line in status_lines if line.startswith("PPid:")).split()[1]
             )
+            return argv, parent_pid
         except (OSError, ValueError, IndexError, StopIteration):
+            return None
+
+    # macOS 没有 /proc；ps 的 command 保留完整 argv，ppid 单独读取更稳定。
+    result = subprocess.run(
+        ["ps", "-p", str(pid), "-o", "ppid=", "-o", "command="],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return None
+    line = result.stdout.strip()
+    parts = line.split(None, 1)
+    if len(parts) != 2:
+        return None
+    try:
+        return shlex.split(parts[1]), int(parts[0])
+    except (ValueError, IndexError):
+        return None
+
+
+def _is_interactive_codex_process(start_pid: int | None = None) -> bool:
+    """沿进程祖先查找 Codex，并只放行无子命令的交互 TUI。"""
+    pid = os.getppid() if start_pid is None else start_pid
+    visited: set[int] = set()
+    while pid > 1 and pid not in visited:
+        visited.add(pid)
+        info = _process_info(pid)
+        if info is None:
             return False
+        argv, parent_pid = info
 
         if argv and _is_codex_executable(argv[0]):
             return _codex_subcommand(argv) not in _NON_INTERACTIVE_SUBCOMMANDS
@@ -228,7 +256,7 @@ def _handle_hook() -> int:
         "策略类型或下单通道、任务动作等关键信息，不得臆造未知信息；"
         "不得包含空格、引号、句号、冒号等标点。"
         "随后立即调用 shell 命令："
-        "python3 /home/kalami/.codex/bin/codex-pane-title.py "
+        f"python3 {shlex.quote(str(Path.home() / '.codex/bin/codex-pane-title.py'))} "
         f"--session-id {quoted_session_id} --set '<短标题>'。"
         "这是静默的界面初始化动作，不要向用户解释或展示标题生成过程。"
     )

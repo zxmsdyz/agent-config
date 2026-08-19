@@ -42,6 +42,35 @@ class CodexSubcommandTest(unittest.TestCase):
         self.assertIsNone(MODULE._codex_subcommand(["/opt/codex", "帮我修复 pane 名称"]))
 
 
+class ProcessInfoTest(unittest.TestCase):
+    def test_macos_ps_fallback_parses_parent_and_argv(self) -> None:
+        completed = MODULE.subprocess.CompletedProcess(
+            [], 0, "  42 /opt/homebrew/bin/codex --model gpt-5.6-sol\n", ""
+        )
+        with (
+            patch.object(MODULE.Path, "is_dir", return_value=False),
+            patch.object(MODULE.subprocess, "run", return_value=completed) as run,
+        ):
+            self.assertEqual(
+                MODULE._process_info(99),
+                (["/opt/homebrew/bin/codex", "--model", "gpt-5.6-sol"], 42),
+            )
+        run.assert_called_once_with(
+            ["ps", "-p", "99", "-o", "ppid=", "-o", "command="],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+    def test_interactive_detection_can_walk_macos_processes(self) -> None:
+        with patch.object(
+            MODULE,
+            "_process_info",
+            side_effect=[(["python3", "hook.py"], 42), (["/opt/homebrew/bin/codex"], 1)],
+        ):
+            self.assertTrue(MODULE._is_interactive_codex_process(start_pid=99))
+
+
 class TitleCleaningTest(unittest.TestCase):
     def test_removes_spaces_and_punctuation(self) -> None:
         self.assertEqual(MODULE._clean_title("优化 Codex 窗格命名！"), "优化Codex窗格命名")
