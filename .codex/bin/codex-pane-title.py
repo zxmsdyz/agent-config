@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 import unicodedata
@@ -13,6 +14,10 @@ from pathlib import Path
 
 
 MAX_TITLE_LENGTH = 12
+DEFAULT_TITLE = "Codex"
+_PANE_SESSION_OPTION = "@codex_title_session_id"
+_PANE_STATUS_OPTION = "@codex_title_status"
+_PANE_TITLE_OPTION = "@codex_title"
 _NON_INTERACTIVE_SUBCOMMANDS = {"e", "exec", "review"}
 _OPTIONS_WITH_VALUE = {
     "-a",
@@ -107,15 +112,48 @@ def _current_pane() -> str | None:
     return pane or None
 
 
-def _automatic_rename_enabled(pane: str) -> bool:
-    result = _tmux(
-        "show-window-options",
-        "-v",
-        "-t",
-        pane,
-        "automatic-rename",
-    )
-    return result.returncode == 0 and result.stdout.strip() == "on"
+def _pane_option(pane: str, name: str) -> str | None:
+    """读取 pane 级用户 option；未设置时返回 ``None``。"""
+    result = _tmux("show-options", "-p", "-v", "-t", pane, name)
+    if result.returncode != 0:
+        return None
+    value = result.stdout.strip()
+    return value or None
+
+
+def _set_pane_option(pane: str, name: str, value: str) -> bool:
+    result = _tmux("set-option", "-p", "-t", pane, name, value)
+    return result.returncode == 0
+
+
+def _lock_window_title(pane: str) -> bool:
+    """禁止 Codex 的 spinner/cwd OSC 标题覆盖语义窗口名。"""
+    result = _tmux("set-window-option", "-t", pane, "automatic-rename", "off")
+    return result.returncode == 0
+
+
+def _ensure_session(pane: str, session_id: str) -> str | None:
+    """发现新 chat 时立即清旧标题，并进入等待语义标题的 pending 状态。"""
+    current_session = _pane_option(pane, _PANE_SESSION_OPTION)
+    if current_session == session_id:
+        status = _pane_option(pane, _PANE_STATUS_OPTION)
+        if status in {"pending", "titled"}:
+            return status
+        # 防止上次 tmux option 只写入一半后永久失去重试机会。
+        if _set_pane_option(pane, _PANE_STATUS_OPTION, "pending"):
+            return "pending"
+        return None
+
+    renamed = _tmux("rename-window", "-t", pane, DEFAULT_TITLE)
+    if renamed.returncode != 0 or not _lock_window_title(pane):
+        return None
+    _set_pane_option(pane, _PANE_TITLE_OPTION, DEFAULT_TITLE)
+    if not _set_pane_option(pane, _PANE_STATUS_OPTION, "pending"):
+        return None
+    # session id 最后提交；前面的任一步失败，下次 hook 仍会完整重试。
+    if not _set_pane_option(pane, _PANE_SESSION_OPTION, session_id):
+        return None
+    return "pending"
 
 
 def _clean_title(raw_title: str) -> str:
@@ -128,7 +166,7 @@ def _clean_title(raw_title: str) -> str:
     return cleaned[:MAX_TITLE_LENGTH]
 
 
-def _set_title(raw_title: str) -> int:
+def _set_title(raw_title: str, session_id: str | None = None) -> int:
     pane = _current_pane()
     if pane is None:
         return 0
@@ -138,42 +176,58 @@ def _set_title(raw_title: str) -> int:
         print("Codex tmux 标题为空，已跳过命名", file=sys.stderr)
         return 1
 
+    # `/clear` 可能在上一轮模型生成标题期间发生。旧轮次不得覆盖新 chat 的标题。
+    if session_id is not None:
+        current_session = _pane_option(pane, _PANE_SESSION_OPTION)
+        if current_session != session_id:
+            return 0
+
     renamed = _tmux("rename-window", "-t", pane, title)
     if renamed.returncode != 0:
         print(renamed.stderr.strip() or "tmux rename-window 失败", file=sys.stderr)
         return renamed.returncode
 
-    # 锁定首次生成的语义标题，避免 Codex 后续更新 pane_title 时覆盖窗口名。
-    locked = _tmux("set-window-option", "-t", pane, "automatic-rename", "off")
-    if locked.returncode != 0:
-        print(locked.stderr.strip() or "关闭 automatic-rename 失败", file=sys.stderr)
-        return locked.returncode
+    if not _lock_window_title(pane):
+        print("关闭 automatic-rename 失败", file=sys.stderr)
+        return 1
+    if session_id is not None:
+        if not _set_pane_option(pane, _PANE_TITLE_OPTION, title):
+            return 1
+        if not _set_pane_option(pane, _PANE_STATUS_OPTION, "titled"):
+            return 1
     return 0
 
 
-def _emit_first_prompt_instruction() -> int:
+def _handle_hook() -> int:
     # Codex hook 输入从 stdin 传入。读取并校验 JSON，避免非 hook 误调用时注入指令。
     try:
         payload = json.load(sys.stdin)
     except (json.JSONDecodeError, OSError):
         return 0
 
-    if payload.get("hook_event_name") != "UserPromptSubmit":
+    event_name = payload.get("hook_event_name")
+    if event_name not in {"SessionStart", "UserPromptSubmit"}:
         return 0
 
     pane = _current_pane()
-    if (
-        pane is None
-        or not _is_interactive_codex_process()
-        or not _automatic_rename_enabled(pane)
-    ):
+    session_id = payload.get("session_id")
+    if pane is None or not isinstance(session_id, str) or not session_id.strip():
+        return 0
+    if not _is_interactive_codex_process():
         return 0
 
+    status = _ensure_session(pane, session_id)
+    if event_name == "SessionStart" or status != "pending":
+        return 0
+
+    quoted_session_id = shlex.quote(session_id)
     instruction = (
         "这是当前 Codex 会话的首次用户对话。开始分析、回复或调用其他工具前，"
         "必须先概括用户本次要完成的核心任务，生成一个 6 至 12 个字符、约 10 个汉字的中文短标题。"
         "标题要做语义总结，不能直接截取用户原句；不得包含空格、引号、句号、冒号等标点。"
-        "随后立即调用 shell 命令：python3 /home/kalami/.codex/bin/codex-pane-title.py --set <短标题>。"
+        "随后立即调用 shell 命令："
+        "python3 /home/kalami/.codex/bin/codex-pane-title.py "
+        f"--session-id {quoted_session_id} --set '<短标题>'。"
         "这是静默的界面初始化动作，不要向用户解释或展示标题生成过程。"
     )
     print(
@@ -193,10 +247,11 @@ def _emit_first_prompt_instruction() -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--set", dest="title")
+    parser.add_argument("--session-id")
     args = parser.parse_args()
     if args.title is not None:
-        return _set_title(args.title)
-    return _emit_first_prompt_instruction()
+        return _set_title(args.title, args.session_id)
+    return _handle_hook()
 
 
 if __name__ == "__main__":

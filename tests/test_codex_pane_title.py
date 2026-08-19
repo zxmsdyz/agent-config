@@ -55,25 +55,76 @@ class TitleCleaningTest(unittest.TestCase):
 
 class FirstPromptInstructionTest(unittest.TestCase):
     def test_interactive_first_prompt_requests_semantic_title(self) -> None:
-        event = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "修复窗口名"})
+        event = json.dumps(
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "session-new",
+                "prompt": "修复窗口名",
+            }
+        )
         stdout = io.StringIO()
         with (
             patch.dict(os.environ, {"TMUX_PANE": "%9"}, clear=False),
             patch.object(MODULE, "_is_interactive_codex_process", return_value=True),
-            patch.object(MODULE, "_automatic_rename_enabled", return_value=True),
+            patch.object(MODULE, "_ensure_session", return_value="pending"),
             patch.object(MODULE.sys, "stdin", io.StringIO(event)),
             redirect_stdout(stdout),
         ):
-            self.assertEqual(MODULE._emit_first_prompt_instruction(), 0)
+            self.assertEqual(MODULE._handle_hook(), 0)
 
         output = json.loads(stdout.getvalue())
         context = output["hookSpecificOutput"]["additionalContext"]
         self.assertIn("6 至 12 个字符", context)
         self.assertIn("不能直接截取用户原句", context)
-        self.assertIn("codex-pane-title.py --set", context)
+        self.assertIn("codex-pane-title.py --session-id", context)
+        self.assertIn("--set '<短标题>'", context)
+        self.assertIn("--session-id session-new", context)
+
+    def test_same_titled_session_does_not_rename_again(self) -> None:
+        event = json.dumps(
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "session-current",
+                "prompt": "继续",
+            }
+        )
+        stdout = io.StringIO()
+        with (
+            patch.dict(os.environ, {"TMUX_PANE": "%9"}, clear=False),
+            patch.object(MODULE, "_is_interactive_codex_process", return_value=True),
+            patch.object(MODULE, "_ensure_session", return_value="titled"),
+            patch.object(MODULE.sys, "stdin", io.StringIO(event)),
+            redirect_stdout(stdout),
+        ):
+            self.assertEqual(MODULE._handle_hook(), 0)
+
+        self.assertEqual(stdout.getvalue(), "")
+
+    def test_session_start_resets_but_does_not_inject_prompt_context(self) -> None:
+        event = json.dumps(
+            {"hook_event_name": "SessionStart", "session_id": "session-after-clear"}
+        )
+        stdout = io.StringIO()
+        with (
+            patch.dict(os.environ, {"TMUX_PANE": "%9"}, clear=False),
+            patch.object(MODULE, "_is_interactive_codex_process", return_value=True),
+            patch.object(MODULE, "_ensure_session", return_value="pending") as ensure,
+            patch.object(MODULE.sys, "stdin", io.StringIO(event)),
+            redirect_stdout(stdout),
+        ):
+            self.assertEqual(MODULE._handle_hook(), 0)
+
+        ensure.assert_called_once_with("%9", "session-after-clear")
+        self.assertEqual(stdout.getvalue(), "")
 
     def test_non_interactive_codex_does_not_request_title(self) -> None:
-        event = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": "审查"})
+        event = json.dumps(
+            {
+                "hook_event_name": "UserPromptSubmit",
+                "session_id": "review-session",
+                "prompt": "审查",
+            }
+        )
         stdout = io.StringIO()
         with (
             patch.dict(os.environ, {"TMUX_PANE": "%9"}, clear=False),
@@ -81,9 +132,62 @@ class FirstPromptInstructionTest(unittest.TestCase):
             patch.object(MODULE.sys, "stdin", io.StringIO(event)),
             redirect_stdout(stdout),
         ):
-            self.assertEqual(MODULE._emit_first_prompt_instruction(), 0)
+            self.assertEqual(MODULE._handle_hook(), 0)
 
         self.assertEqual(stdout.getvalue(), "")
+
+
+class SessionStateTest(unittest.TestCase):
+    def test_partial_state_is_repaired_to_pending(self) -> None:
+        with (
+            patch.object(
+                MODULE,
+                "_pane_option",
+                side_effect=["session-current", None],
+            ),
+            patch.object(MODULE, "_set_pane_option", return_value=True) as set_option,
+        ):
+            self.assertEqual(MODULE._ensure_session("%9", "session-current"), "pending")
+
+        set_option.assert_called_once_with("%9", MODULE._PANE_STATUS_OPTION, "pending")
+
+    def test_new_session_resets_window_and_records_pending_state(self) -> None:
+        completed = MODULE.subprocess.CompletedProcess([], 0, "", "")
+        with (
+            patch.object(MODULE, "_pane_option", return_value="session-old"),
+            patch.object(MODULE, "_tmux", return_value=completed) as tmux,
+            patch.object(MODULE, "_lock_window_title", return_value=True),
+            patch.object(MODULE, "_set_pane_option", return_value=True) as set_option,
+        ):
+            self.assertEqual(MODULE._ensure_session("%9", "session-new"), "pending")
+
+        tmux.assert_called_once_with("rename-window", "-t", "%9", "Codex")
+        set_option.assert_any_call("%9", MODULE._PANE_SESSION_OPTION, "session-new")
+        set_option.assert_any_call("%9", MODULE._PANE_STATUS_OPTION, "pending")
+
+    def test_stale_turn_cannot_overwrite_new_session_title(self) -> None:
+        with (
+            patch.dict(os.environ, {"TMUX_PANE": "%9"}, clear=False),
+            patch.object(MODULE, "_pane_option", return_value="session-after-clear"),
+            patch.object(MODULE, "_tmux") as tmux,
+        ):
+            self.assertEqual(MODULE._set_title("旧会话标题", "session-before-clear"), 0)
+
+        tmux.assert_not_called()
+
+    def test_successful_title_marks_current_session_titled(self) -> None:
+        completed = MODULE.subprocess.CompletedProcess([], 0, "", "")
+        with (
+            patch.dict(os.environ, {"TMUX_PANE": "%9"}, clear=False),
+            patch.object(MODULE, "_pane_option", return_value="session-current"),
+            patch.object(MODULE, "_tmux", return_value=completed),
+            patch.object(MODULE, "_lock_window_title", return_value=True),
+            patch.object(MODULE, "_set_pane_option", return_value=True) as set_option,
+        ):
+            self.assertEqual(MODULE._set_title("修复 Codex 窗格命名", "session-current"), 0)
+
+        set_option.assert_any_call("%9", MODULE._PANE_TITLE_OPTION, "修复Codex窗格命名")
+        set_option.assert_any_call("%9", MODULE._PANE_STATUS_OPTION, "titled")
 
 
 if __name__ == "__main__":

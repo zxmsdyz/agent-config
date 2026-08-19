@@ -13,8 +13,8 @@
 | `.claude/settings.json` | `~/.claude/settings.json` | Claude Code 设置；`Stop` hook 调用下面的脚本弹 Windows 通知 |
 | `.claude/hooks/notify-done.sh` | `~/.claude/hooks/notify-done.sh` | Stop hook 入口：算好 tmux 标题/任务名，调同目录 `notify.ps1` |
 | `.claude/hooks/notify.ps1` | 随 `notify-done.sh` 同目录 | 弹 Windows toast + 用 WinRT OneCore 嗓音 **Yaoyao（女声）** 朗读任务名；找不到该嗓音则退回默认 |
-| `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `UserPromptSubmit` hook；仅交互式 TUI 在首轮要求 Codex 归纳任务标题，`codex exec/review` 不会改名，后续短追问不会覆盖 |
-| `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 首轮注入“语义总结为约 10 字中文标题”的指令，再清理空格/标点、限制为最多 12 字并锁定 tmux 窗口名 |
+| `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `SessionStart` + `UserPromptSubmit` hook；仅交互式 TUI 按 chat 的 `session_id` 重置并生成任务标题，`codex exec/review` 不会改名 |
+| `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 新 chat（含 `/clear`）先清旧标题，首轮再注入“语义总结为约 10 字中文标题”的指令；同 chat 的后续追问不覆盖，旧轮次也不能越过 `/clear` 回写 |
 | `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `notify` 入口；复用 Windows toast + 晓晓语音，在每轮完成时朗读 tmux 任务名 |
 
 ## 安装（拷贝方式）
