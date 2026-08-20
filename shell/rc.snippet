@@ -1,0 +1,5 @@
+# claude wrapper：默认加 --dangerously-skip-permissions，并**拒绝** /mnt/c 下的 Windows 版
+# claude.exe 接管 WSL 仓库（它用 Git Bash 跑 hook → python3 命中商店 stub → qflow 的
+# PreToolUse guard 全部 fail-open）。必须放在 nvm 加载之后。2026-08-14 补挂。
+alias ccyolo="claude --dangerously-skip-permissions"
+[ -s "$HOME/.claude/bin/claude-wrapper.sh" ] && \. "$HOME/.claude/bin/claude-wrapper.sh"

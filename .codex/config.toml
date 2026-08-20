@@ -1,0 +1,16 @@
+# 通用模板：仅含跨机器可复用的字段。
+# `notify` 与 `[mcp_servers.openspec]` 的绝对路径里的 __HOME__ 占位符由 install.sh
+# 在生成本机 ~/.codex/config.toml 时替换为实际 $HOME（openspec python 路径按 install.sh
+# 现有的探测逻辑填充）。
+#
+# 本文件不直接安装到 ~/.codex/config.toml：install.sh 会读取本机已有的 config.toml
+# （若存在），只用本模板覆盖 model / model_reasoning_effort / notify /
+# [mcp_servers.openspec] 四段，保留其余本机专属段（[projects."..."] trust_level、
+# [hooks.state...] 信任哈希、[tui.model_availability_nux]、[notice.model_migrations]）。
+model = "gpt-5.6-sol"
+model_reasoning_effort = "medium"
+notify = ["bash", "__HOME__/.codex/bin/codex-notify-done.sh"]
+
+[mcp_servers.openspec]
+command = "__OPENSPEC_PYTHON__"
+args = ["-m", "openspec_mcp"]

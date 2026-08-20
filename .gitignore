@@ -2,3 +2,4 @@
 .claude/hooks/_tts.mp3
 .codex/bin/_tts.mp3
 __pycache__/
+!.claude/settings.local.json

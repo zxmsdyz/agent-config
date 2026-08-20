@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(openclaw config:*)",
+      "Bash(openclaw gateway:*)",
+      "Bash(openclaw models:*)",
+      "Bash(openclaw health:*)",
+      "Bash(git push:*)"
+    ]
+  }
+}

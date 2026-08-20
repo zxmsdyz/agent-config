@@ -43,11 +43,73 @@ link_file "$repo_root/.tmux.conf" "$HOME/.tmux.conf"
 link_file "$repo_root/.claude/hooks/notify-done.sh" "$HOME/.claude/hooks/notify-done.sh"
 link_file "$repo_root/.claude/hooks/notify.ps1" "$HOME/.claude/hooks/notify.ps1"
 link_file "$repo_root/.claude/bin/tmux-cc-peer-label.sh" "$HOME/.claude/bin/tmux-cc-peer-label.sh"
+link_file "$repo_root/.claude/bin/claude-wrapper.sh" "$HOME/.claude/bin/claude-wrapper.sh"
+link_file "$repo_root/.claude/bin/rc-debug.sh" "$HOME/.claude/bin/rc-debug.sh"
+link_file "$repo_root/.claude/bin/rc-disconnect-snapshot.sh" "$HOME/.claude/bin/rc-disconnect-snapshot.sh"
+link_file "$repo_root/.claude/bin/statusline-agent-name.sh" "$HOME/.claude/bin/statusline-agent-name.sh"
+link_file "$repo_root/.claude/settings.local.json" "$HOME/.claude/settings.local.json"
+link_file "$repo_root/.claude/skills/cryptostruct-market-data" "$HOME/.claude/skills/cryptostruct-market-data"
 link_file "$repo_root/.codex/hooks.json" "$HOME/.codex/hooks.json"
 link_file "$repo_root/.codex/bin/codex-pane-title.py" "$HOME/.codex/bin/codex-pane-title.py"
 link_file "$repo_root/.codex/bin/codex-notify-done.sh" "$HOME/.codex/bin/codex-notify-done.sh"
+link_file "$repo_root/.codex/rules/default.rules" "$HOME/.codex/rules/default.rules"
 chmod +x "$repo_root/install.sh" "$repo_root/.claude/hooks/notify-done.sh" \
-  "$repo_root/.claude/bin/tmux-cc-peer-label.sh" "$repo_root/.codex/bin/"*
+  "$repo_root/.claude/bin/tmux-cc-peer-label.sh" "$repo_root/.claude/bin/claude-wrapper.sh" \
+  "$repo_root/.claude/bin/rc-debug.sh" "$repo_root/.claude/bin/rc-disconnect-snapshot.sh" \
+  "$repo_root/.claude/bin/statusline-agent-name.sh" "$repo_root/.codex/bin/"*
+
+# ---------------------------------------------------------------------------
+# rc 片段幂等注入：把 shell/rc.snippet 塞进用户 rc 文件的 marker 包裹区间内。
+# 已存在 marker 就整体替换区间内容，不重复追加。
+# ---------------------------------------------------------------------------
+inject_rc_snippet() {
+  rc_file=$1
+  snippet="$repo_root/shell/rc.snippet"
+  begin_marker="# >>> agent-config >>>"
+  end_marker="# <<< agent-config <<<"
+  python3 - "$rc_file" "$snippet" "$begin_marker" "$end_marker" <<'PY'
+import sys
+from pathlib import Path
+
+rc_path, snippet_path, begin, end = sys.argv[1:5]
+rc = Path(rc_path)
+snippet_body = Path(snippet_path).read_text(encoding="utf-8").rstrip("\n")
+block = f"{begin}\n{snippet_body}\n{end}\n"
+
+text = rc.read_text(encoding="utf-8") if rc.exists() else ""
+if begin in text and end in text:
+    start = text.index(begin)
+    stop = text.index(end) + len(end)
+    if text[stop:stop + 1] == "\n":
+        stop += 1
+    text = text[:start] + block + text[stop:]
+else:
+    if text and not text.endswith("\n"):
+        text += "\n"
+    text += block
+rc.write_text(text, encoding="utf-8")
+
+# marker 区间之外若还留着旧的手写引导行（本仓库纳管前用户自己加的），重复 source
+# 本身无害（函数/alias 只是重定义），但会让 rc 文件难读、也容易和将来的改动打架。
+# 不自动删——误删用户 rc 文件的代价远大于收益——只提示。
+outside = text[:text.index(begin)] + text[text.index(end) + len(end):]
+if "claude-wrapper.sh" in outside:
+    print(f"[agent-config] ⚠️  {rc_path} 的 marker 区间之外还有旧的 claude-wrapper 引导行，", file=sys.stderr)
+    print("                建议手动删除，避免重复 source。", file=sys.stderr)
+PY
+  echo "已同步 rc 片段: $rc_file"
+}
+
+if [ "$platform" = "macOS" ]; then
+  default_rc="$HOME/.zshrc"
+  other_rc="$HOME/.bashrc"
+else
+  default_rc="$HOME/.bashrc"
+  other_rc="$HOME/.zshrc"
+fi
+[ -f "$default_rc" ] || : > "$default_rc"
+inject_rc_snippet "$default_rc"
+[ -f "$other_rc" ] && inject_rc_snippet "$other_rc"
 
 openspec_command=""
 openspec_args=""
@@ -111,10 +173,170 @@ from pathlib import Path
 template = Path(os.environ["AGENT_CONFIG_TEMPLATE"])
 target = Path(os.environ["AGENT_CONFIG_TARGET"])
 settings = json.loads(template.read_text(encoding="utf-8"))
-servers = settings.setdefault("mcpServers", {})
+settings.setdefault("mcpServers", {})
+
+# hooks / statusLine 的 command 交给 Claude Code 执行，`~` 是否展开取决于它用不用 shell。
+# 不赌这个：模板里统一写 `~/`（保持跨机器可移植），生成本地副本时递归替换成真实
+# $HOME，两种执行方式都能跑。
+def expand_home(node):
+    if isinstance(node, dict):
+        return {k: expand_home(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [expand_home(v) for v in node]
+    if isinstance(node, str):
+        return node.replace("~/", os.environ["HOME"] + "/")
+    return node
+
+
+settings = expand_home(settings)
 
 target.parent.mkdir(parents=True, exist_ok=True)
 target.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+
+# ---------------------------------------------------------------------------
+# ~/.codex/config.toml 含机器级 trust_level / hooks 信任哈希，不能直接软链接模板。
+# 只用模板覆盖 model / model_reasoning_effort / notify / [mcp_servers.openspec]
+# 四段，保留本机其余原有段。已有文件先备份，python3 < 3.11（无 tomllib）时不做
+# 破坏性合并，仅在文件不存在时按模板直接生成，存在时保留原样并提示手动核对。
+# ---------------------------------------------------------------------------
+codex_config_target="$HOME/.codex/config.toml"
+codex_config_existing=""
+mkdir -p "$HOME/.codex"
+if [ -e "$codex_config_target" ] && [ ! -L "$codex_config_target" ]; then
+  codex_config_backup="$codex_config_target.bak.$(date +%Y%m%d%H%M%S)"
+  cp "$codex_config_target" "$codex_config_backup"
+  echo "已备份: $codex_config_target -> $codex_config_backup"
+  codex_config_existing="$codex_config_target"
+elif [ -L "$codex_config_target" ]; then
+  rm "$codex_config_target"
+fi
+
+export AGENT_CONFIG_CODEX_TEMPLATE="$repo_root/.codex/config.toml"
+export AGENT_CONFIG_CODEX_TARGET="$codex_config_target"
+export AGENT_CONFIG_CODEX_EXISTING="$codex_config_existing"
+export AGENT_CONFIG_HOME="$HOME"
+export AGENT_CONFIG_OPENSPEC_COMMAND="$openspec_command"
+export AGENT_CONFIG_OPENSPEC_ARGS="$openspec_args"
+python3 - <<'PY'
+import os
+import re
+import sys
+from pathlib import Path
+
+template_path = Path(os.environ["AGENT_CONFIG_CODEX_TEMPLATE"])
+target_path = Path(os.environ["AGENT_CONFIG_CODEX_TARGET"])
+existing_path_str = os.environ.get("AGENT_CONFIG_CODEX_EXISTING", "")
+home = os.environ["AGENT_CONFIG_HOME"]
+openspec_command = os.environ.get("AGENT_CONFIG_OPENSPEC_COMMAND", "")
+openspec_args_raw = os.environ.get("AGENT_CONFIG_OPENSPEC_ARGS", "")
+openspec_args = openspec_args_raw.split() if openspec_args_raw else []
+
+raw_template_text = template_path.read_text(encoding="utf-8").replace("__HOME__", home)
+placeholder_fill = openspec_command or "openspec-mcp"
+parsable_template_text = raw_template_text.replace("__OPENSPEC_PYTHON__", placeholder_fill)
+
+try:
+    import tomllib
+except ImportError:
+    tomllib = None
+
+if tomllib is None:
+    print("[agent-config] 当前 python3 没有内置 tomllib（< 3.11），跳过 ~/.codex/config.toml 的安全合并。", file=sys.stderr)
+    if existing_path_str:
+        print("[agent-config] 已保留现有 ~/.codex/config.toml，未做修改；请手动核对模板 .codex/config.toml 中的", file=sys.stderr)
+        print("                model / model_reasoning_effort / notify / [mcp_servers.openspec] 是否需要同步。", file=sys.stderr)
+    else:
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(parsable_template_text, encoding="utf-8")
+        print(f"[agent-config] 已按模板直接生成 {target_path}（未做 tomllib 校验）", file=sys.stderr)
+    raise SystemExit(0)
+
+template = tomllib.loads(parsable_template_text)
+
+
+def dump_key(key: str) -> str:
+    if re.match(r"^[A-Za-z0-9_-]+$", key):
+        return key
+    escaped = key.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
+def dump_scalar(value):
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, str):
+        escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ", ".join(dump_scalar(v) for v in value) + "]"
+    raise TypeError(f"不支持序列化的类型: {type(value)!r}")
+
+
+def dump_table(f, table, path):
+    scalars = {k: v for k, v in table.items() if not isinstance(v, dict)}
+    subtables = {k: v for k, v in table.items() if isinstance(v, dict)}
+    header = ".".join(dump_key(p) for p in path)
+    f.write(f"[{header}]\n")
+    for k, v in scalars.items():
+        f.write(f"{dump_key(k)} = {dump_scalar(v)}\n")
+    f.write("\n")
+    for k, v in subtables.items():
+        dump_table(f, v, path + [k])
+
+
+def dump_document(data: dict) -> str:
+    import io
+
+    f = io.StringIO()
+    top_scalars = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    top_tables = {k: v for k, v in data.items() if isinstance(v, dict)}
+    for k, v in top_scalars.items():
+        f.write(f"{dump_key(k)} = {dump_scalar(v)}\n")
+    if top_scalars:
+        f.write("\n")
+    for k, v in top_tables.items():
+        dump_table(f, v, [k])
+    text = f.getvalue()
+    while text.endswith("\n\n"):
+        text = text[:-1]
+    if not text.endswith("\n"):
+        text += "\n"
+    return text
+
+
+mcp_openspec_table = {
+    "command": openspec_command or "openspec-mcp",
+    "args": openspec_args,
+}
+
+if existing_path_str:
+    existing_text = Path(existing_path_str).read_text(encoding="utf-8")
+    try:
+        existing = tomllib.loads(existing_text)
+    except Exception as exc:
+        print(f"[agent-config] 现有 ~/.codex/config.toml 解析失败，跳过合并以免破坏它: {exc}", file=sys.stderr)
+        raise SystemExit(1)
+    existing["model"] = template["model"]
+    existing["model_reasoning_effort"] = template["model_reasoning_effort"]
+    existing["notify"] = template["notify"]
+    mcp_servers = existing.setdefault("mcp_servers", {})
+    mcp_servers["openspec"] = mcp_openspec_table
+    result = existing
+    action = "合并"
+else:
+    result = dict(template)
+    result["mcp_servers"] = {"openspec": mcp_openspec_table}
+    action = "生成"
+
+document = dump_document(result)
+# 落盘前自检：确保生成的内容能被 tomllib 正常解析回来，避免写出坏文件
+tomllib.loads(document)
+target_path.parent.mkdir(parents=True, exist_ok=True)
+target_path.write_text(document, encoding="utf-8")
+print(f"[agent-config] 已{action} {target_path}", file=sys.stderr)
 PY
 
 echo "已确保 Claude 官方 superpowers 插件启用"

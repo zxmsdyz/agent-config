@@ -16,6 +16,15 @@
 | `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `SessionStart` + `UserPromptSubmit` hook；仅交互式 TUI 按 chat 的 `session_id` 重置并生成任务标题，`codex exec/review` 不会改名 |
 | `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 新 chat（含 `/clear`）先清旧标题，首轮再注入“约 20 字，优先包含 venue、策略/通道与动作”的语义命名指令；同 chat 的后续追问不覆盖，旧轮次也不能越过 `/clear` 回写 |
 | `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `notify` 入口；按系统选择通知和语音，在每轮完成时朗读 tmux 任务名 |
+| `.codex/rules/default.rules` | `~/.codex/rules/default.rules` | Codex 用户级规则；允许 `git merge` 免二次确认 |
+| `.claude/bin/claude-wrapper.sh` | `~/.claude/bin/claude-wrapper.sh` | 定义 `claude()` shell 函数，默认加 `--dangerously-skip-permissions` 并拒绝 `/mnt/*` 下的 Windows 版 claude 接管 WSL 仓库；bash / zsh 双兼容（纯 POSIX 循环遍历 `$PATH`，不用 `type -aP` / process substitution） |
+| `.claude/bin/rc-debug.sh` | `~/.claude/bin/rc-debug.sh` | remote-control 断连排障：带 `--debug-file` 启动 + 后台采样 TCP 连接状态 |
+| `.claude/bin/rc-disconnect-snapshot.sh` | `~/.claude/bin/rc-disconnect-snapshot.sh` | 手机端报 disconnected 时一键采证（bridge 进程活性 / poll 时间 / environment_id 等） |
+| `.claude/bin/statusline-agent-name.sh` | `~/.claude/bin/statusline-agent-name.sh` | Claude Code `statusLine`：显示本 session 的跨 agent 通信名（查 `~/.claude/sessions/<pid>.json`）+ 当前 git 分支 + model |
+| `.claude/settings.local.json` | `~/.claude/settings.local.json` | 个人 `permissions.allow` 白名单（仅命令前缀级授权，无凭据）。⚠️ 该文件名默认被本机全局 `~/.config/git/ignore` 忽略，本仓库 `.gitignore` 用 `!.claude/settings.local.json` 显式取消忽略 |
+| `.claude/skills/cryptostruct-market-data/` | `~/.claude/skills/cryptostruct-market-data/` | 第三方行情数据技能（整目录 symlink），无凭据，仅文档 + 拉取脚本 |
+| `shell/rc.snippet` | 注入 `~/.bashrc` / `~/.zshrc` | `ccyolo` alias + `claude-wrapper.sh` 的 source 行；用 `# >>> agent-config >>>` / `# <<< agent-config <<<` marker 包裹，幂等注入（重复执行 `install.sh` 不会重复追加） |
+| `.codex/config.toml` | 与 `~/.codex/config.toml` 合并 | 见下方「codex config.toml 合并策略」 |
 
 ## 安装（软链接方式）
 
@@ -26,11 +35,42 @@ tmux source-file ~/.tmux.conf   # 让运行中的 tmux 立即生效
 ```
 
 `install.sh` 会识别 macOS / WSL / Linux，大部分配置以软链接安装。若目标位置已有普通文件，
-脚本会先生成带时间戳的 `.bak.*` 备份，不会直接覆盖。`~/.claude/settings.json`
-例外：它会由通用模板加上本机自动探测到的 MCP 路径生成，因此是本地文件而非软链接。
+脚本会先生成带时间戳的 `.bak.*` 备份，不会直接覆盖。以下两个例外**不是** symlink，而是
+每次执行 `install.sh` 时按本机情况**生成 / 合并**出来的本地文件：
 
-> 注：仓库里是**副本**，之后改了本机 `~` 下的文件记得同步回仓库再 commit。
-> 想让仓库成为唯一真源、编辑自动同步，可改用 symlink（如 GNU stow）。
+- `~/.claude/settings.json`：由通用模板加上本机自动探测到的 MCP 路径生成。
+- `~/.codex/config.toml`：见下方「codex config.toml 合并策略」。
+
+`~/.bashrc` / `~/.zshrc` 里的 `ccyolo` alias + `claude-wrapper.sh` source 行通过
+marker 包裹区间幂等注入（见上表 `shell/rc.snippet`），不是 symlink（rc 文件里其余
+个人内容不能被覆盖，只能注入/替换 marker 内的这一段）。macOS 默认目标是
+`~/.zshrc`，Linux/WSL 默认目标是 `~/.bashrc`；若两个 rc 文件在本机都存在，会同时注入两份，
+保证换 shell 也生效。
+
+### codex config.toml 合并策略
+
+`~/.codex/config.toml` 除了 `model` / `model_reasoning_effort` / `notify` /
+`[mcp_servers.openspec]` 这几个跨机器通用字段外，还含机器专属的
+`[projects."<本机路径>"]` trust_level、`[hooks.state...]` 信任哈希、
+`[tui.model_availability_nux]`、`[notice.model_migrations]`，不能直接整体覆盖或
+symlink 模板。`install.sh` 的处理方式：
+
+1. 若 `python3` ≥ 3.11（内置 `tomllib`）：解析本机已有的 `config.toml`（若存在），
+   只覆盖 `model` / `model_reasoning_effort` / `notify` / `[mcp_servers.openspec]`
+   四段（`notify` 里的路径和 `mcp_servers.openspec.command` 会替换成本机 `$HOME`
+   与实际探测到的 openspec 可执行文件），其余段原样保留后写回；写回前会用
+   `tomllib.loads()` 自检一遍，解析失败才落盘。原文件会先备份成
+   `config.toml.bak.<timestamp>`。
+2. 若本机没有该文件：直接按模板生成。
+3. 若 `python3` < 3.11（没有 `tomllib`）：**不做合并**——已有文件保持原样不动，
+   只在终端提示需要手动核对 `model` / `model_reasoning_effort` / `notify` /
+   `[mcp_servers.openspec]` 是否要同步；没有旧文件时才按模板直接生成（不做
+   TOML 解析校验）。这是已知限制，遇到旧版 python3 时按提示手动处理。
+
+> 注：`.claude/settings.json` / `.codex/config.toml` 仓库里放的是**通用模板**，不是某台
+> 机器的直接副本，改本机那两个文件不会回流仓库——要让改动跨机器生效必须改模板。
+> **其余文件装完都是 symlink，仓库即唯一真源**：编辑 `~/.claude/bin/xxx.sh` 就是在编辑
+> 仓库里的那份，`git status` 会直接看到，不需要"同步回仓库"这一步。
 
 ## 依赖
 
