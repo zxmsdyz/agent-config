@@ -27,12 +27,25 @@ if command -v claude >/dev/null 2>&1; then
   fi
 fi
 
+# 备份一律落到专用目录，不能留在原地。
+# Why：~/.claude/skills/ 和 ~/.codex/rules/ 会被工具**按目录扫描**，原地留一个
+# `<name>.bak.<ts>` 会被当成另一个 skill / 另一份规则加载出来（2026-08-20 实测：
+# 备份目录直接以 `cryptostruct-market-data.bak.20260820154018` 出现在技能列表里）。
+backup_root="$HOME/.agent-config-backups"
+
+# 把 $HOME 下的相对路径展平成文件名，避免不同目录的同名文件互相覆盖。
+backup_path() {
+  rel=${1#"$HOME"/}
+  printf '%s/%s.bak.%s' "$backup_root" "$(printf '%s' "$rel" | tr '/' '_')" "$(date +%Y%m%d%H%M%S)"
+}
+
 link_file() {
   source=$1
   target=$2
   mkdir -p "$(dirname "$target")"
   if [ -e "$target" ] && [ ! -L "$target" ]; then
-    backup="$target.bak.$(date +%Y%m%d%H%M%S)"
+    mkdir -p "$backup_root"
+    backup=$(backup_path "$target")
     mv "$target" "$backup"
     echo "已备份: $target -> $backup"
   fi
@@ -156,7 +169,8 @@ fi
 # 先完成上面的全部探测和校验，再替换现有配置，避免失败时留下空缺。
 settings_target="$HOME/.claude/settings.json"
 if [ -e "$settings_target" ] && [ ! -L "$settings_target" ]; then
-  settings_backup="$settings_target.bak.$(date +%Y%m%d%H%M%S)"
+  mkdir -p "$backup_root"
+  settings_backup=$(backup_path "$settings_target")
   mv "$settings_target" "$settings_backup"
   echo "已备份: $settings_target -> $settings_backup"
 elif [ -L "$settings_target" ]; then
@@ -220,7 +234,8 @@ codex_config_target="$HOME/.codex/config.toml"
 codex_config_existing=""
 mkdir -p "$HOME/.codex"
 if [ -e "$codex_config_target" ] && [ ! -L "$codex_config_target" ]; then
-  codex_config_backup="$codex_config_target.bak.$(date +%Y%m%d%H%M%S)"
+  mkdir -p "$backup_root"
+  codex_config_backup=$(backup_path "$codex_config_target")
   cp "$codex_config_target" "$codex_config_backup"
   echo "已备份: $codex_config_target -> $codex_config_backup"
   codex_config_existing="$codex_config_target"

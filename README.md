@@ -35,7 +35,10 @@ tmux source-file ~/.tmux.conf   # 让运行中的 tmux 立即生效
 ```
 
 `install.sh` 会识别 macOS / WSL / Linux，大部分配置以软链接安装。若目标位置已有普通文件，
-脚本会先生成带时间戳的 `.bak.*` 备份，不会直接覆盖。以下两个例外**不是** symlink，而是
+脚本会先备份再覆盖——备份**统一落到 `~/.agent-config-backups/`**（文件名是相对 `$HOME`
+的路径展平 + 时间戳），不留在原地。原地留备份会出事：`~/.claude/skills/` 和
+`~/.codex/rules/` 是**按目录扫描**的，一个 `<name>.bak.<时间戳>` 会被当成另一个 skill /
+另一份规则加载出来。以下两个例外**不是** symlink，而是
 每次执行 `install.sh` 时按本机情况**生成 / 合并**出来的本地文件：
 
 - `~/.claude/settings.json`：由通用模板加上本机自动探测到的 MCP 路径生成。
