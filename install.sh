@@ -165,15 +165,31 @@ fi
 
 export AGENT_CONFIG_TEMPLATE="$repo_root/.claude/settings.json"
 export AGENT_CONFIG_TARGET="$settings_target"
+export AGENT_CONFIG_SETTINGS_EXISTING="${settings_backup:-}"
 python3 - <<'PY'
 import json
 import os
+import sys
 from pathlib import Path
 
 template = Path(os.environ["AGENT_CONFIG_TEMPLATE"])
 target = Path(os.environ["AGENT_CONFIG_TARGET"])
 settings = json.loads(template.read_text(encoding="utf-8"))
 settings.setdefault("mcpServers", {})
+
+# 本机可能有模板里没有的 MCP server（例如指向本地构建产物的路径），这些是机器专属的、
+# 不该进模板，但也不能每次 install 就被抹掉。取并集：模板同名条目优先，本机独有的保留。
+# 其余顶层键一律以模板为准——hooks / statusLine 这些正是要靠 install.sh 拉回统一状态的。
+existing_path = os.environ.get("AGENT_CONFIG_SETTINGS_EXISTING", "")
+if existing_path and Path(existing_path).exists():
+    try:
+        previous = json.loads(Path(existing_path).read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        previous = {}
+    for name, conf in (previous.get("mcpServers") or {}).items():
+        if name not in settings["mcpServers"]:
+            settings["mcpServers"][name] = conf
+            print(f"[agent-config] 保留本机独有的 MCP server: {name}", file=sys.stderr)
 
 # hooks / statusLine 的 command 交给 Claude Code 执行，`~` 是否展开取决于它用不用 shell。
 # 不赌这个：模板里统一写 `~/`（保持跨机器可移植），生成本地副本时递归替换成真实
