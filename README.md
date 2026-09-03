@@ -31,8 +31,14 @@
 ```bash
 cd ~/agent-config
 ./install.sh
-tmux source-file ~/.tmux.conf   # 让运行中的 tmux 立即生效
 ```
+
+`install.sh` 会在最开头完成**全部探测和校验**（python3 版本、openspec-mcp），任何一项
+不满足就直接退出，不会改动这台机器上的任何文件。校验通过后才开始安装。
+
+tmux 部分是自动的：脚本发现 `.tmux.conf` 里引用了 tpm 就会自动 `git clone` tpm 并同步
+`@plugin` 声明的插件（resurrect / continuum）。已有 tmux server 在跑时会顺带
+`source-file` 一次，所以不需要再手动执行 `tmux source-file ~/.tmux.conf`。
 
 `install.sh` 会识别 macOS / WSL / Linux，大部分配置以软链接安装。若目标位置已有普通文件，
 脚本会先备份再覆盖——备份**统一落到 `~/.agent-config-backups/`**（文件名是相对 `$HOME`
@@ -58,17 +64,24 @@ marker 包裹区间幂等注入（见上表 `shell/rc.snippet`），不是 symli
 `[tui.model_availability_nux]`、`[notice.model_migrations]`，不能直接整体覆盖或
 symlink 模板。`install.sh` 的处理方式：
 
-1. 若 `python3` ≥ 3.11（内置 `tomllib`）：解析本机已有的 `config.toml`（若存在），
+脚本不只看 PATH 里的 `python3`——它按 `python3.14` → `python3.13` → `python3.12` →
+`python3.11` → `python3` 的顺序探测，取第一个带 `tomllib` 的。macOS 自带的 `python3` 是
+3.9.6，但只要机器上另装了 3.11+，合并就照常生效，**不需要**为此调整 PATH。
+
+1. 若探测到带 `tomllib` 的 python3（3.11+）：解析本机已有的 `config.toml`（若存在），
    只覆盖 `model` / `model_reasoning_effort` / `notify` / `[mcp_servers.openspec]`
    四段（`notify` 里的路径和 `mcp_servers.openspec.command` 会替换成本机 `$HOME`
    与实际探测到的 openspec 可执行文件），其余段原样保留后写回；写回前会用
    `tomllib.loads()` 自检一遍，解析失败才落盘。原文件会先备份成
    `config.toml.bak.<timestamp>`。
 2. 若本机没有该文件：直接按模板生成。
-3. 若 `python3` < 3.11（没有 `tomllib`）：**不做合并**——已有文件保持原样不动，
+3. 若整台机器都找不到 3.11+ 的 python3：**不做合并**——已有文件保持原样不动，
    只在终端提示需要手动核对 `model` / `model_reasoning_effort` / `notify` /
    `[mcp_servers.openspec]` 是否要同步；没有旧文件时才按模板直接生成（不做
-   TOML 解析校验）。这是已知限制，遇到旧版 python3 时按提示手动处理。
+   TOML 解析校验）。装一个 3.11+ 的 python3 即可恢复合并，无需其他配置。
+
+> 已知限制：合并是「解析 → 重新序列化」，**`~/.codex/config.toml` 里的注释会在合并后丢失**
+> （TOML 注释不进解析结果）。本机手写的注释请放在别处，或接受每次 `install.sh` 后消失。
 
 > 注：`.claude/settings.json` / `.codex/config.toml` 仓库里放的是**通用模板**，不是某台
 > 机器的直接副本，改本机那两个文件不会回流仓库——要让改动跨机器生效必须改模板。
@@ -83,8 +96,14 @@ symlink 模板。`install.sh` 的处理方式：
 - `~/.codex/config.toml` 的 `notify` 需使用当前用户的绝对路径，例如 macOS 上
   `notify = ["bash", "/Users/<用户名>/.codex/bin/codex-notify-done.sh"]`。
 - Codex 首次发现或脚本变更后会要求审核 hook；在 Codex 内运行 `/hooks` 并信任该用户级 hook。
+- `git`：用于自动安装 tpm。缺失时脚本只警告，`.tmux.conf` 里的插件不会生效。
+- `tmux`：未安装时脚本会跳过插件同步并提示；装好 tmux 后重跑 `install.sh` 即可补上。
+- `python3` 3.11+（任意版本号形式均可，脚本自动探测）：`~/.codex/config.toml` 的安全合并所需。
 
-`install.sh` 会确保 Claude 官方 `superpowers` 插件已安装并启用，同时自动探测
+`install.sh` 会把 `.claude/settings.json` 模板里 `enabledPlugins` 标为 `true` 的插件
+**逐个装上并启用**（目前是 `superpowers` / `telegram` / `frontend-design` /
+`skill-creator`）。只在 `settings.json` 里写 `enable` 而不 install，新机器上会留下
+「已启用但不存在」的插件——所以插件清单以模板为准，加插件只需改模板。同时自动探测
 `openspec-mcp` 可执行文件或包含 `openspec_mcp` 模块的 Python 虚拟环境。未安装且
 系统存在 `uv` 时，会自动安装 `openspec-mcp` 并固定兼容的 `mcp<2`，然后通过
 `claude mcp add --scope user` 注册，不依赖 Claude 不读取的 `settings.json.mcpServers` 路径。
