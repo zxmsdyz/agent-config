@@ -23,7 +23,7 @@
 | `.claude/bin/statusline-agent-name.sh` | `~/.claude/bin/statusline-agent-name.sh` | Claude Code `statusLine`：显示本 session 的跨 agent 通信名（查 `~/.claude/sessions/<pid>.json`）+ 当前 git 分支 + model |
 | `.claude/settings.local.json` | `~/.claude/settings.local.json` | 个人 `permissions.allow` 白名单（仅命令前缀级授权，无凭据）。⚠️ 该文件名默认被本机全局 `~/.config/git/ignore` 忽略，本仓库 `.gitignore` 用 `!.claude/settings.local.json` 显式取消忽略 |
 | `.claude/skills/cryptostruct-market-data/` | `~/.claude/skills/cryptostruct-market-data/` | 第三方行情数据技能（整目录 symlink），无凭据，仅文档 + 拉取脚本 |
-| `shell/rc.snippet` | 注入 `~/.bashrc` / `~/.zshrc` | `ccyolo` alias + `claude-wrapper.sh` 的 source 行；用 `# >>> agent-config >>>` / `# <<< agent-config <<<` marker 包裹，幂等注入（重复执行 `install.sh` 不会重复追加） |
+| `shell/rc.snippet` | 注入 `~/.bashrc` / `~/.zshrc` | `cxyolo` / `ccyolo` alias + `claude-wrapper.sh` 的 source 行；用 `# >>> agent-config >>>` / `# <<< agent-config <<<` marker 包裹，幂等注入（重复执行 `install.sh` 不会重复追加） |
 | `.codex/config.toml` | 与 `~/.codex/config.toml` 合并 | 见下方「codex config.toml 合并策略」 |
 
 ## 安装（软链接方式）
@@ -50,7 +50,7 @@ tmux 部分是自动的：脚本发现 `.tmux.conf` 里引用了 tpm 就会自�
 - `~/.claude/settings.json`：由通用模板加上本机自动探测到的 MCP 路径生成。
 - `~/.codex/config.toml`：见下方「codex config.toml 合并策略」。
 
-`~/.bashrc` / `~/.zshrc` 里的 `ccyolo` alias + `claude-wrapper.sh` source 行通过
+`~/.bashrc` / `~/.zshrc` 里的 `cxyolo` / `ccyolo` alias + `claude-wrapper.sh` source 行通过
 marker 包裹区间幂等注入（见上表 `shell/rc.snippet`），不是 symlink（rc 文件里其余
 个人内容不能被覆盖，只能注入/替换 marker 内的这一段）。macOS 默认目标是
 `~/.zshrc`，Linux/WSL 默认目标是 `~/.bashrc`；若两个 rc 文件在本机都存在，会同时注入两份，
