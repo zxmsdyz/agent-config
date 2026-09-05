@@ -1,5 +1,5 @@
 {
-  "description": "Codex 会话的 tmux 自动命名",
+  "description": "Codex 会话自动命名与终态提醒",
   "hooks": {
     "SessionStart": [
       {
@@ -19,6 +19,30 @@
             "type": "command",
             "command": "python3 ~/.codex/bin/codex-pane-title.py",
             "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.codex/bin/codex-notify-done.sh",
+            "async": true,
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.codex/bin/codex-notify-done.sh",
+            "async": true,
+            "timeout": 15
           }
         ]
       }

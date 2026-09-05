@@ -308,8 +308,9 @@ PY
 
 # ---------------------------------------------------------------------------
 # ~/.codex/config.toml 含机器级 trust_level / hooks 信任哈希，不能直接软链接模板。
-# 只用模板覆盖 model / model_reasoning_effort / notify / [mcp_servers.openspec]
-# 四段，保留本机其余原有段。已有文件先备份，python3 < 3.11（无 tomllib）时不做
+# 只用模板覆盖 model / model_reasoning_effort / [mcp_servers.openspec] 三段，并移除
+# 旧式 notify（提醒已迁到 Stop / PermissionRequest hooks），保留本机其余原有段。
+# 已有文件先备份，python3 < 3.11（无 tomllib）时不做
 # 破坏性合并，仅在文件不存在时按模板直接生成，存在时保留原样并提示手动核对（脚本开头的
 # pick_python 已尽力找过 3.11+，走到这里说明整台机器上都没有）。
 # ---------------------------------------------------------------------------
@@ -359,7 +360,7 @@ if tomllib is None:
     print("[agent-config] 当前 python3 没有内置 tomllib（< 3.11），跳过 ~/.codex/config.toml 的安全合并。", file=sys.stderr)
     if existing_path_str:
         print("[agent-config] 已保留现有 ~/.codex/config.toml，未做修改；请手动核对模板 .codex/config.toml 中的", file=sys.stderr)
-        print("                model / model_reasoning_effort / notify / [mcp_servers.openspec] 是否需要同步。", file=sys.stderr)
+        print("                model / model_reasoning_effort / [mcp_servers.openspec] 是否需要同步，并手动移除旧式 notify。", file=sys.stderr)
     else:
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(parsable_template_text, encoding="utf-8")
@@ -435,7 +436,7 @@ if existing_path_str:
         raise SystemExit(1)
     existing["model"] = template["model"]
     existing["model_reasoning_effort"] = template["model_reasoning_effort"]
-    existing["notify"] = template["notify"]
+    existing.pop("notify", None)
     mcp_servers = existing.setdefault("mcp_servers", {})
     mcp_servers["openspec"] = mcp_openspec_table
     result = existing
