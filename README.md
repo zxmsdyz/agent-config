@@ -101,7 +101,7 @@ symlink 模板。`install.sh` 的处理方式：
 - `python3` 3.11+（任意版本号形式均可，脚本自动探测）：`~/.codex/config.toml` 的安全合并所需。
 
 `install.sh` 会把 `.claude/settings.json` 模板里 `enabledPlugins` 标为 `true` 的插件
-**逐个装上并启用**（目前是 `superpowers` / `telegram` / `frontend-design` /
+**逐个装上并启用**（目前是 `superpowers` / `frontend-design` /
 `skill-creator`）。只在 `settings.json` 里写 `enable` 而不 install，新机器上会留下
 「已启用但不存在」的插件——所以插件清单以模板为准，加插件只需改模板。同时自动探测
 `openspec-mcp` 可执行文件或包含 `openspec_mcp` 模块的 Python 虚拟环境。未安装且
