@@ -1,8 +1,21 @@
 #!/usr/bin/env bash
 # Codex notify：完成一轮任务后弹系统通知，并朗读当前 tmux 任务名。
 
-VOICE="zh-CN-XiaoxiaoNeural"
 payload="${1:-{}}"
+
+self_path="$0"
+while [ -L "$self_path" ]; do
+  link=$(readlink "$self_path")
+  case "$link" in /*) self_path="$link" ;; *) self_path="$(dirname "$self_path")/$link" ;; esac
+done
+selfdir=$(cd "$(dirname "$self_path")" && pwd -P)
+
+# Codex 会为根线程和 subagent 都调用 notify；来源无法确认时一律静默。
+if ! python3 "$selfdir/codex-notify-root-turn.py" "$payload"; then
+  exit 0
+fi
+
+VOICE="zh-CN-XiaoxiaoNeural"
 title="Codex"
 line="任务已完成"
 
@@ -18,12 +31,6 @@ if [ "$line" = "任务已完成" ]; then
   [ -n "$summary" ] && line="$summary"
 fi
 
-self_path="$0"
-while [ -L "$self_path" ]; do
-  link=$(readlink "$self_path")
-  case "$link" in /*) self_path="$link" ;; *) self_path="$(dirname "$self_path")/$link" ;; esac
-done
-selfdir=$(cd "$(dirname "$self_path")" && pwd -P)
 repo_root=$(cd "$selfdir/../.." && pwd -P)
 notify_ps1="$repo_root/.claude/hooks/notify.ps1"
 edgetts="$repo_root/.venv/bin/edge-tts"
