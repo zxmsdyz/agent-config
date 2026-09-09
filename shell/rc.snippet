@@ -1,5 +1,10 @@
-# Agent CLI 的无沙箱快捷命令。
+# Codex 安全入口：使用工作区沙箱，并由用户审批越界或高风险动作。
+alias cx="codex --sandbox workspace-write --ask-for-approval on-request"
+
+# Codex 全权限入口：仅在明确需要无沙箱、无审批时由用户主动选择。
 alias cxyolo="codex --dangerously-bypass-approvals-and-sandbox"
+
+# Claude CLI 的无沙箱快捷命令。
 alias ccyolo="claude --dangerously-skip-permissions"
 
 # claude wrapper：默认加 --dangerously-skip-permissions，并**拒绝** /mnt/c 下的 Windows 版
