@@ -15,7 +15,7 @@
 | `.claude/hooks/notify.ps1` | 随 `notify-done.sh` 同目录 | 弹 Windows toast + 用 WinRT OneCore 嗓音 **Yaoyao（女声）** 朗读任务名；找不到该嗓音则退回默认 |
 | `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `SessionStart` + `UserPromptSubmit` hook；仅交互式 TUI 按 chat 的 `session_id` 重置并生成任务标题，`codex exec/review` 不会改名 |
 | `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 新 chat（含 `/clear`）先清旧标题，首轮再注入“约 20 字，优先包含 venue、策略/通道与动作”的语义命名指令；同 chat 的后续追问不覆盖，旧轮次也不能越过 `/clear` 回写 |
-| `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `notify` 入口；按系统选择通知和语音，仅在根用户线程完成时朗读 tmux 任务名，subagent 完成保持静默 |
+| `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `Stop` / `PermissionRequest` hook 与旧版 `notify` 入口；按系统选择通知和语音，旧版 subagent 完成保持静默 |
 | `.codex/rules/default.rules` | `~/.codex/rules/default.rules` | Codex 用户级规则；允许 `git merge` 免二次确认 |
 | `.claude/bin/claude-wrapper.sh` | `~/.claude/bin/claude-wrapper.sh` | 定义 `claude()` shell 函数，默认加 `--dangerously-skip-permissions` 并拒绝 `/mnt/*` 下的 Windows 版 claude 接管 WSL 仓库；bash / zsh 双兼容（纯 POSIX 循环遍历 `$PATH`，不用 `type -aP` / process substitution） |
 | `.claude/bin/rc-debug.sh` | `~/.claude/bin/rc-debug.sh` | remote-control 断连排障：带 `--debug-file` 启动 + 后台采样 TCP 连接状态 |

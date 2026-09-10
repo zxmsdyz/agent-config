@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Codex notify：完成一轮任务后弹系统通知，并朗读当前 tmux 任务名。
+# Codex 终态提醒：兼容 macOS、WSL 与原生 Linux，并朗读当前 tmux 任务名。
 
 if [ "$#" -gt 0 ]; then
   payload="$1"
+  input_mode="legacy"
 else
-  payload='{}'
+  input_mode="hook"
+  payload=$(cat)
 fi
 
 self_path="$0"
@@ -14,25 +16,58 @@ while [ -L "$self_path" ]; do
 done
 selfdir=$(cd "$(dirname "$self_path")" && pwd -P)
 
-# Codex 会为根线程和 subagent 都调用 notify；来源无法确认时一律静默。
-if ! python3 "$selfdir/codex-notify-root-turn.py" "$payload"; then
-  exit 0
-fi
+event=$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); print(p.get("hook_event_name") or p.get("type") or "")' "$payload" 2>/dev/null)
+case "$event" in
+  Stop)
+    notification_kind="complete"
+    status_text="任务已完成"
+    ;;
+  PermissionRequest)
+    notification_kind="decision"
+    status_text="需要你做决策"
+    ;;
+  agent-turn-complete)
+    # 旧版 notify 会同时通知根线程和 subagent，只允许真实根线程播报。
+    if ! python3 "$selfdir/codex-notify-root-turn.py" "$payload"; then
+      exit 0
+    fi
+    last_message=$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); print((p.get("last-assistant-message") or "").strip())' "$payload" 2>/dev/null)
+    [ -n "$last_message" ] || exit 0
+    notification_kind="complete"
+    status_text="任务已完成"
+    ;;
+  *)
+    [ "$input_mode" = "hook" ] && printf '{}\n'
+    exit 0
+    ;;
+esac
 
 VOICE="zh-CN-XiaoxiaoNeural"
-title="Codex"
-line="任务已完成"
+title="Codex $status_text"
+line="$status_text"
 
 if [ -n "${TMUX_PANE:-}" ] && command -v tmux >/dev/null 2>&1; then
   sess=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null)
   task=$(tmux display-message -p -t "$TMUX_PANE" '#W' 2>/dev/null)
-  [ -n "$sess" ] && title="[$sess] Codex"
+  [ -n "$sess" ] && title="[$sess] Codex $status_text"
   [ -n "$task" ] && line="$task"
 fi
 
-if [ "$line" = "任务已完成" ]; then
+if [ "$line" = "$status_text" ]; then
   summary=$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); xs=p.get("input-messages", []); print(" ".join(xs).strip()[:80])' "$payload" 2>/dev/null)
   [ -n "$summary" ] && line="$summary"
+fi
+
+if [ "$line" = "$status_text" ]; then
+  speech="$status_text"
+else
+  speech="${line}，${status_text}"
+fi
+
+if [ "${CODEX_NOTIFY_DRY_RUN:-}" = "1" ]; then
+  printf '%s\n%s\n%s\n%s\n' "$notification_kind" "$title" "$line" "$speech"
+  [ "$input_mode" = "hook" ] && printf '{}\n'
+  exit 0
 fi
 
 repo_root=$(cd "$selfdir/../.." && pwd -P)
@@ -61,7 +96,7 @@ on run argv
 end run
 APPLESCRIPT
     if [ -s "$mp3" ] && command -v afplay >/dev/null 2>&1; then afplay "$mp3" >/dev/null 2>&1
-    elif command -v say >/dev/null 2>&1; then say "$line" >/dev/null 2>&1
+    elif command -v say >/dev/null 2>&1; then say "$speech" >/dev/null 2>&1
     fi
     ;;
   Linux)
@@ -78,4 +113,5 @@ APPLESCRIPT
     ;;
 esac
 
+[ "$input_mode" = "hook" ] && printf '{}\n'
 exit 0
