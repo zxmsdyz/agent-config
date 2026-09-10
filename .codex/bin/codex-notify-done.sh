@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Codex notify：完成一轮任务后弹系统通知，并朗读当前 tmux 任务名。
 
-payload="${1:-{}}"
+if [ "$#" -gt 0 ]; then
+  payload="$1"
+else
+  payload='{}'
+fi
 
 self_path="$0"
 while [ -L "$self_path" ]; do
@@ -33,7 +37,7 @@ fi
 
 repo_root=$(cd "$selfdir/../.." && pwd -P)
 notify_ps1="$repo_root/.claude/hooks/notify.ps1"
-edgetts="$repo_root/.venv/bin/edge-tts"
+edge_python="$repo_root/.venv/bin/python3"
 mp3="$selfdir/_tts.mp3"
 rm -f "$mp3"
 
@@ -44,8 +48,8 @@ run_with_timeout() {
   else "$@"
   fi
 }
-if [ -x "$edgetts" ] && [ -n "$proxy" ]; then
-  run_with_timeout env -u all_proxy "$edgetts" --proxy "$proxy" --voice "$VOICE" \
+if [ -x "$edge_python" ] && [ -n "$proxy" ]; then
+  run_with_timeout env -u all_proxy "$edge_python" -m edge_tts --proxy "$proxy" --voice "$VOICE" \
     --text "$line" --write-media "$mp3" >/dev/null 2>&1
 fi
 
