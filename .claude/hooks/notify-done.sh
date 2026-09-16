@@ -8,6 +8,28 @@
 #       超时时退回本地合成音兜底(macOS=Tingting，WSL=WinRT Yaoyao)，永不哑火。
 # - 在 tmux 里：标题 = "[<session>] Claude Code"，正文/朗读 = 当前窗口名(#W)=任务摘要
 # - 不在 tmux 里：退回固定文案 "任务已完成"
+#
+# 只响一次：hook 只注册在 Stop（subagent 走 SubagentStop，不注册），进门再过一遍
+# claude-notify-root-turn.py，把 subagent 内的 Stop、`--agent` 会话，以及"起完后台
+# 活就先结束本回合"的中途停顿全部静音。
+
+# 本文件可能是指向仓库的软链——解析真实路径，定位同目录的过滤器 / notify.ps1 / venv
+self_path="$0"
+while [ -L "$self_path" ]; do
+  link=$(readlink "$self_path")
+  case "$link" in
+    /*) self_path="$link" ;;
+    *) self_path="$(dirname "$self_path")/$link" ;;
+  esac
+done
+selfdir=$(cd "$(dirname "$self_path")" && pwd -P)
+
+# 只在「主 agent 回合真正结束」时通知：subagent / --agent 会话 / 还在等后台活的
+# 回合一律静默。判据全在 claude-notify-root-turn.py 的注释里。
+payload=$(cat 2>/dev/null)
+if ! printf '%s' "$payload" | python3 "$selfdir/claude-notify-root-turn.py"; then
+  exit 0
+fi
 
 # 想换嗓音改这里：zh-CN-XiaoxiaoNeural(晓晓/女·温柔) / zh-CN-YunxiNeural(云希/男) /
 #                zh-CN-XiaoyiNeural(晓伊/女) / zh-CN-YunyangNeural(云扬/男·播音)
@@ -41,16 +63,6 @@ macos_say() {
   fi
 }
 
-# 本文件可能是指向仓库的软链——解析真实路径，定位同目录的 notify.ps1 / venv
-self_path="$0"
-while [ -L "$self_path" ]; do
-  link=$(readlink "$self_path")
-  case "$link" in
-    /*) self_path="$link" ;;
-    *) self_path="$(dirname "$self_path")/$link" ;;
-  esac
-done
-selfdir=$(cd "$(dirname "$self_path")" && pwd -P)
 repo_root=$(cd "$selfdir/../.." && pwd -P)
 edgetts="$repo_root/.venv/bin/edge-tts"
 
