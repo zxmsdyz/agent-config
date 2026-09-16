@@ -2,9 +2,10 @@
 # Claude Code Stop hook: 系统通知 + 语音朗读当前任务名(tmux 窗口名 #W)。
 # 由 ~/.claude/settings.json 的 Stop hook 调用；弹窗+播放逻辑在同目录 notify.ps1。
 #
-# 语音：优先用 edge-tts 微软自然神经音(晓晓)合成 mp3 → notify.ps1 用 MediaPlayer 播放；
-#       edge-tts 需经 http 代理(直连 wss 被墙)。代理挂/合成失败时，notify.ps1 退回本地
-#       WinRT Yaoyao 老合成音兜底，永不哑火。
+# 语音：优先用 edge-tts 微软自然神经音(晓晓)合成 mp3 → macOS 用 afplay、WSL 交
+#       notify.ps1 用 MediaPlayer 播放。WSL/国内网络下 edge-tts 直连 wss 被墙，需经
+#       http 代理；macOS 本机实测可直连(~1s)，故无代理时直接跑、不再跳过。合成失败/
+#       超时时退回本地合成音兜底(macOS=Tingting，WSL=WinRT Yaoyao)，永不哑火。
 # - 在 tmux 里：标题 = "[<session>] Claude Code"，正文/朗读 = 当前窗口名(#W)=任务摘要
 # - 不在 tmux 里：退回固定文案 "任务已完成"
 
@@ -64,9 +65,16 @@ run_with_timeout() {
   else "$@"
   fi
 }
-if [ -x "$edgetts" ] && [ -n "$proxy" ]; then
-  run_with_timeout env -u all_proxy "$edgetts" --proxy "$proxy" --voice "$VOICE" \
-    --text "$speech" --write-media "$mp3" >/dev/null 2>&1
+if [ -x "$edgetts" ]; then
+  if [ -n "$proxy" ]; then
+    run_with_timeout env -u all_proxy "$edgetts" --proxy "$proxy" --voice "$VOICE" \
+      --text "$speech" --write-media "$mp3" >/dev/null 2>&1
+  else
+    # 无代理(macOS 本机)：直连 wss。曾因 `[ -n "$proxy" ]` 一律跳过，导致 mac 上
+    # 即使装了 edge-tts 也永远听不到晓晓，只有本地兜底音。
+    run_with_timeout env -u all_proxy "$edgetts" --voice "$VOICE" \
+      --text "$speech" --write-media "$mp3" >/dev/null 2>&1
+  fi
 fi
 
 case "$(uname -s)" in

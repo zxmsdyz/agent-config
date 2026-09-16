@@ -66,7 +66,9 @@ fi
 
 macos_say() {
   text=$1
-  if say -v Tingting '?' >/dev/null 2>&1; then
+  # ⚠ 探测声音只能用 `say -v '?'`（列声音表，不发声）；写成 `say -v Tingting '?'`
+  # 就是「用婷婷朗读文本 ?」，每次通知都会先念一声「问号」。同 notify-done.sh。
+  if say -v '?' 2>/dev/null | grep -q '^Tingting[[:space:]]'; then
     say -v Tingting "$text" >/dev/null 2>&1
   else
     say "$text" >/dev/null 2>&1
@@ -92,9 +94,15 @@ run_with_timeout() {
   else "$@"
   fi
 }
-if [ -x "$edge_python" ] && [ -n "$proxy" ]; then
-  run_with_timeout env -u all_proxy "$edge_python" -m edge_tts --proxy "$proxy" --voice "$VOICE" \
-    --text "$speech" --write-media "$mp3" >/dev/null 2>&1
+if [ -x "$edge_python" ]; then
+  if [ -n "$proxy" ]; then
+    run_with_timeout env -u all_proxy "$edge_python" -m edge_tts --proxy "$proxy" --voice "$VOICE" \
+      --text "$speech" --write-media "$mp3" >/dev/null 2>&1
+  else
+    # 无代理(macOS 本机)：直连 wss 实测可用，不再整段跳过。同 notify-done.sh。
+    run_with_timeout env -u all_proxy "$edge_python" -m edge_tts --voice "$VOICE" \
+      --text "$speech" --write-media "$mp3" >/dev/null 2>&1
+  fi
 fi
 
 case "$(uname -s)" in

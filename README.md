@@ -91,6 +91,7 @@ symlink 模板。`install.sh` 的处理方式：
 ## 依赖
 
 - macOS 通知使用系统自带的 `osascript`，语音优先播放 edge-tts 产物，否则回退到 `say`。
+- edge-tts（微软自然神经音·晓晓）由 `install.sh` 自动建在仓库内 `.venv/`（已 gitignore，幂等、装不上只警告不阻断）。WSL/国内网络需 `https_proxy`/`http_proxy` 才能连 wss；macOS 本机实测可直连，无代理也会走神经音。缺失时退回本地合成音（macOS=Tingting，WSL=WinRT Yaoyao），不会哑火。
 - WSL 的 Windows toast 需 PowerShell 模块 `BurntToast`（`Install-Module BurntToast`），原有逻辑保持不变。
 - 原生 Linux 通知优先使用 `notify-send`，MP3 播放使用 `mpv`（存在时）。
 - `~/.codex/config.toml` 的 `notify` 需使用当前用户的绝对路径，例如 macOS 上

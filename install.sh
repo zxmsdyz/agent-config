@@ -196,6 +196,28 @@ if grep -q "plugins/tpm/tpm" "$repo_root/.tmux.conf" 2>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
+# 语音依赖 edge-tts：两个 Stop hook（.claude/hooks/notify-done.sh、
+# .codex/bin/codex-notify-done.sh）优先用微软自然神经音(晓晓)合成 mp3，找不到
+# $repo_root/.venv/bin/edge-tts 就退回系统本地合成音（macOS=Tingting，WSL=WinRT
+# Yaoyao）。安装器此前完全不管这个 venv —— 于是 macOS 上它「从没建过」，语音永远
+# 只有兜底音，且没有任何报错提示。这里幂等补齐。
+# 失败不阻断安装：兜底音本就保证不哑火，网络不通时只是听不到神经音。
+# ---------------------------------------------------------------------------
+tts_venv="$repo_root/.venv"
+if [ -x "$tts_venv/bin/edge-tts" ]; then
+  echo "[agent-config] edge-tts 已就绪：$tts_venv/bin/edge-tts"
+else
+  echo "[agent-config] 正在为语音通知准备 edge-tts venv…"
+  if "$python_bin" -m venv "$tts_venv" >/dev/null 2>&1 &&
+     "$tts_venv/bin/python" -m pip install -q --upgrade pip >/dev/null 2>&1 &&
+     "$tts_venv/bin/python" -m pip install -q edge-tts >/dev/null 2>&1; then
+    echo "[agent-config] edge-tts 安装完成：$("$tts_venv/bin/edge-tts" --version 2>/dev/null || echo 未知版本)"
+  else
+    echo "[agent-config] ⚠️  edge-tts 安装失败（多半是网络），语音回退本地合成音；其它配置不受影响。" >&2
+  fi
+fi
+
+# ---------------------------------------------------------------------------
 # rc 片段幂等注入：把 shell/rc.snippet 塞进用户 rc 文件的 marker 包裹区间内。
 # 已存在 marker 就整体替换区间内容，不重复追加。
 # ---------------------------------------------------------------------------
