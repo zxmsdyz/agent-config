@@ -11,7 +11,7 @@
           {
             "type": "command",
             "command": "bash ~/.claude/hooks/notify-done.sh",
-            "timeout": 10
+            "timeout": 20
           }
         ]
       }
