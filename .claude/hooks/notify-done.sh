@@ -22,6 +22,21 @@ if [ -n "$TMUX_PANE" ] && command -v tmux >/dev/null 2>&1; then
   [ -n "$task" ] && line="$task"
 fi
 
+if [ "$line" = "任务已完成" ]; then
+  speech="任务已完成"
+else
+  speech="${line}，任务已完成"
+fi
+
+macos_say() {
+  text=$1
+  if say -v Tingting '?' >/dev/null 2>&1; then
+    say -v Tingting "$text" >/dev/null 2>&1
+  else
+    say "$text" >/dev/null 2>&1
+  fi
+}
+
 # 本文件可能是指向仓库的软链——解析真实路径，定位同目录的 notify.ps1 / venv
 self_path="$0"
 while [ -L "$self_path" ]; do
@@ -48,7 +63,7 @@ run_with_timeout() {
 }
 if [ -x "$edgetts" ] && [ -n "$proxy" ]; then
   run_with_timeout env -u all_proxy "$edgetts" --proxy "$proxy" --voice "$VOICE" \
-    --text "$line" --write-media "$mp3" >/dev/null 2>&1
+    --text "$speech" --write-media "$mp3" >/dev/null 2>&1
 fi
 
 case "$(uname -s)" in
@@ -62,7 +77,7 @@ APPLESCRIPT
     if [ -s "$mp3" ] && command -v afplay >/dev/null 2>&1; then
       afplay "$mp3" >/dev/null 2>&1
     elif command -v say >/dev/null 2>&1; then
-      say "$line" >/dev/null 2>&1
+      macos_say "$speech"
     fi
     ;;
   Linux)

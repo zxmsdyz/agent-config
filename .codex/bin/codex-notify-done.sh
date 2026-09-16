@@ -64,6 +64,15 @@ else
   speech="${line}，${status_text}"
 fi
 
+macos_say() {
+  text=$1
+  if say -v Tingting '?' >/dev/null 2>&1; then
+    say -v Tingting "$text" >/dev/null 2>&1
+  else
+    say "$text" >/dev/null 2>&1
+  fi
+}
+
 if [ "${CODEX_NOTIFY_DRY_RUN:-}" = "1" ]; then
   printf '%s\n%s\n%s\n%s\n' "$notification_kind" "$title" "$line" "$speech"
   [ "$input_mode" = "hook" ] && printf '{}\n'
@@ -85,7 +94,7 @@ run_with_timeout() {
 }
 if [ -x "$edge_python" ] && [ -n "$proxy" ]; then
   run_with_timeout env -u all_proxy "$edge_python" -m edge_tts --proxy "$proxy" --voice "$VOICE" \
-    --text "$line" --write-media "$mp3" >/dev/null 2>&1
+    --text "$speech" --write-media "$mp3" >/dev/null 2>&1
 fi
 
 case "$(uname -s)" in
@@ -96,7 +105,7 @@ on run argv
 end run
 APPLESCRIPT
     if [ -s "$mp3" ] && command -v afplay >/dev/null 2>&1; then afplay "$mp3" >/dev/null 2>&1
-    elif command -v say >/dev/null 2>&1; then say "$speech" >/dev/null 2>&1
+    elif command -v say >/dev/null 2>&1; then macos_say "$speech"
     fi
     ;;
   Linux)
