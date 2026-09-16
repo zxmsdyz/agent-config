@@ -30,7 +30,10 @@ fi
 
 macos_say() {
   text=$1
-  if say -v Tingting '?' >/dev/null 2>&1; then
+  # ⚠ 探测 Tingting 是否存在只能用 `say -v '?'`（列出所有声音，纯 stdout 不发声）。
+  # 曾误写成 `say -v Tingting '?'` —— 那是「用婷婷朗读文本 ?」，于是每次任务完成
+  # 都会先听到一声「问号」再听任务名。重定向挡得住文字挡不住声音。
+  if say -v '?' 2>/dev/null | grep -q '^Tingting[[:space:]]'; then
     say -v Tingting "$text" >/dev/null 2>&1
   else
     say "$text" >/dev/null 2>&1
