@@ -10,9 +10,9 @@
 |---|---|---|
 | `.tmux.conf` | `~/.tmux.conf` | tmux 配置；开启 `automatic-rename`，窗口名自动跟随 Claude Code 当前任务摘要（取 `pane_title` 剥掉 spinner），新 tab 不再是 `bash`、无需手动改名；pane 边框右端显示该 pane 的 CC peer 地址（见下一行脚本） |
 | `.claude/bin/tmux-cc-peer-label.sh` | `~/.claude/bin/tmux-cc-peer-label.sh` | 被 `pane-border-format` 的 `#()` 调用，查 `~/.claude/sessions/<pid>.json` 反查该 pane 的 Claude Code peer 地址：`⇄ 名字 sid` = 已注册 peer messaging（`SendMessage({to:"名字"})` 可直达）；`· 名字 sid (no-msg)` = 有会话但没开 messaging socket，`ListAgents` 看不到它 |
-| `.claude/settings.json` | `~/.claude/settings.json` | Claude Code 设置；`Stop` hook 调用下面的脚本弹系统通知 |
-| `.claude/hooks/notify-done.sh` | `~/.claude/hooks/notify-done.sh` | Stop hook 入口：自动判断 macOS / WSL / Linux，选择对应的通知和语音实现；只在主 agent 回合真正结束时响，subagent 完成与「等后台活」的中途停顿保持静默 |
-| `.claude/hooks/claude-notify-root-turn.py` | 随 `notify-done.sh` 同目录 | Stop payload 过滤器：拦掉 `SubagentStop`、带 `agent_id`/`agent_type` 的 subagent 内 Stop、subagents/ 下的 transcript，以及 `background_tasks` 还有在飞任务的回合 |
+| `.claude/settings.json` | `~/.claude/settings.json` | Claude Code 设置；`Stop`（任务完成）、`Notification`（等权限 / MCP 表单）、`PreToolUse`（matcher 限定 `AskUserQuestion｜ExitPlanMode`）三个 hook 都指向下面的脚本 |
+| `.claude/hooks/notify-done.sh` | `~/.claude/hooks/notify-done.sh` | 通知入口：自动判断 macOS / WSL / Linux，选择对应的通知和语音实现。按 `hook_event_name` 分发成「任务已完成」与「需要你确认」两类；subagent 完成与「等后台活」的中途停顿保持静默。`CLAUDE_NOTIFY_DRY_RUN=1` 只打印 mode/标题/正文/播报词四行，不弹窗不发声 |
+| `.claude/hooks/claude-notify-root-turn.py` | 随 `notify-done.sh` 同目录 | payload 过滤器，分 `stop` / `attention` 两种 mode。共同拦掉 subagent（`agent_id`/`agent_type`、`subagents/` 下的 transcript）；`stop` 额外拦 `background_tasks` 还有在飞任务的回合，`attention` 额外拦 `idle_prompt` 等噪声通知类型与非阻塞工具。每次静音记一行到 `~/.claude/notify-skip.log` |
 | `.claude/hooks/notify.ps1` | 随 `notify-done.sh` 同目录 | 弹 Windows toast + 用 WinRT OneCore 嗓音 **Yaoyao（女声）** 朗读任务名；找不到该嗓音则退回默认 |
 | `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `SessionStart` + `UserPromptSubmit` hook；仅交互式 TUI 按 chat 的 `session_id` 重置并生成任务标题，`codex exec/review` 不会改名 |
 | `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 新 chat（含 `/clear`）先清旧标题，首轮再注入“约 20 字，优先包含 venue、策略/通道与动作”的语义命名指令；同 chat 的后续追问不覆盖，旧轮次也不能越过 `/clear` 回写 |
@@ -92,6 +92,12 @@ symlink 模板。`install.sh` 的处理方式：
 ## 依赖
 
 - macOS 通知使用系统自带的 `osascript`，语音优先播放 edge-tts 产物，否则回退到 `say`。
+- ⚠️ **Claude Code 在会话启动时快照 hooks 配置**：改完 `settings.json` 要新开会话（或在
+  会话里跑 `/hooks` 复核）才生效，当前会话不会自动加载。
+- 通知没响时先看 `~/.claude/notify-skip.log`——静音本身不可观测，判据误伤的现象就是
+  「通知莫名其妙没了」，这份日志记下是哪条判据拦的、`background_tasks` 当时什么状态。
+- 刻意**不**注册 Claude 侧的 `PermissionRequest`：`Notification` 的 `permission_prompt`
+  已覆盖同一时刻，且它是决策卡点，hook 跑得慢会拖住授权对话框本身。
 - edge-tts（微软自然神经音·晓晓）由 `install.sh` 自动建在仓库内 `.venv/`（已 gitignore，幂等、装不上只警告不阻断）。WSL/国内网络需 `https_proxy`/`http_proxy` 才能连 wss；macOS 本机实测可直连，无代理也会走神经音。缺失时退回本地合成音（macOS=Tingting，WSL=WinRT Yaoyao），不会哑火。
 - WSL 的 Windows toast 需 PowerShell 模块 `BurntToast`（`Install-Module BurntToast`），原有逻辑保持不变。
 - 原生 Linux 通知优先使用 `notify-send`，MP3 播放使用 `mpv`（存在时）。

@@ -6,6 +6,7 @@ import importlib.util
 import json
 import os
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -39,6 +40,44 @@ def _stop_payload(**overrides: object) -> str:
     }
     payload.update(overrides)
     return json.dumps(payload)
+
+
+class _skip_log:
+    """把静音日志改道到临时文件，避免测试污染 ~/.claude/notify-skip.log。"""
+
+    def __enter__(self) -> Path:
+        self._dir = tempfile.TemporaryDirectory()
+        self._prev = os.environ.get(MODULE._SKIP_LOG_ENV)
+        self.path = Path(self._dir.name) / "notify-skip.log"
+        self.path.touch()
+        os.environ[MODULE._SKIP_LOG_ENV] = str(self.path)
+        return self.path
+
+    def __exit__(self, *exc: object) -> None:
+        if self._prev is None:
+            os.environ.pop(MODULE._SKIP_LOG_ENV, None)
+        else:
+            os.environ[MODULE._SKIP_LOG_ENV] = self._prev
+        self._dir.cleanup()
+
+
+def _run_notify(payload: str) -> list[str]:
+    """DRY_RUN 跑一次 notify-done.sh，返回它打印的行（静默时为空）。"""
+    with tempfile.TemporaryDirectory() as tmp:
+        result = subprocess.run(
+            ["bash", str(NOTIFY_SCRIPT)],
+            check=False,
+            capture_output=True,
+            text=True,
+            input=payload,
+            env={
+                **os.environ,
+                "CLAUDE_NOTIFY_DRY_RUN": "1",
+                MODULE._SKIP_LOG_ENV: str(Path(tmp) / "skip.log"),
+            },
+        )
+    assert result.returncode == 0, result.stderr
+    return result.stdout.splitlines()
 
 
 class ClaudeNotifyRootTurnTest(unittest.TestCase):
@@ -101,10 +140,154 @@ class ClaudeNotifyRootTurnTest(unittest.TestCase):
         self.assertTrue(MODULE.should_notify(payload))
 
     def test_cli_reads_stdin_and_argv(self) -> None:
-        self.assertEqual(MODULE.main(["过滤器", _stop_payload()]), 0)
-        self.assertEqual(
-            MODULE.main(["过滤器", _stop_payload(hook_event_name="SubagentStop")]), 1
+        with _skip_log() as log:
+            self.assertEqual(MODULE.main(["过滤器", _stop_payload()]), 0)
+            self.assertEqual(
+                MODULE.main(["过滤器", _stop_payload(hook_event_name="SubagentStop")]), 1
+            )
+            self.assertFalse(log.read_text(encoding="utf-8").startswith("\n"))
+
+    def test_cli_accepts_mode_flag(self) -> None:
+        payload = _stop_payload(hook_event_name="Notification", message="需要权限")
+        with _skip_log():
+            self.assertEqual(MODULE.main(["过滤器", "--mode", "attention", payload]), 0)
+            self.assertEqual(MODULE.main(["过滤器", "--mode", "stop", payload]), 1)
+
+    def test_skip_is_logged_with_reason_and_tasks(self) -> None:
+        """静音本身不可观测——判据误伤时现场必须留下一行，否则只能靠猜。"""
+        tasks = [{"id": "beel9v18b", "type": "shell", "status": "running"}]
+        with _skip_log() as log:
+            MODULE.main(["过滤器", _stop_payload(background_tasks=tasks)])
+            written = log.read_text(encoding="utf-8")
+        self.assertIn("stop/background-work-inflight", written)
+        self.assertIn("beel9v18b", written)
+        self.assertIn(SESSION_ID[:8], written)
+
+    def test_skip_log_is_capped(self) -> None:
+        with _skip_log() as log:
+            for _ in range(MODULE._SKIP_LOG_MAX_LINES + 40):
+                MODULE.main(["过滤器", _stop_payload(hook_event_name="SubagentStop")])
+            lines = log.read_text(encoding="utf-8").splitlines()
+        self.assertLessEqual(len(lines), MODULE._SKIP_LOG_MAX_LINES)
+
+    def test_allowed_turn_writes_nothing(self) -> None:
+        with _skip_log() as log:
+            MODULE.main(["过滤器", _stop_payload()])
+            self.assertEqual(log.read_text(encoding="utf-8"), "")
+
+    def test_attention_mode_allows_waiting_on_user_events(self) -> None:
+        for event in ("Notification", "PermissionRequest"):
+            with self.subTest(event=event):
+                self.assertTrue(
+                    MODULE.should_notify(
+                        _stop_payload(hook_event_name=event), mode="attention"
+                    )
+                )
+
+    def test_attention_mode_ignores_background_work(self) -> None:
+        """要权限时后台常常正有活在飞——套 stop 的判据就等于最该响时不响。"""
+        payload = _stop_payload(
+            hook_event_name="Notification",
+            background_tasks=[{"id": "x", "status": "running"}],
         )
+        self.assertTrue(MODULE.should_notify(payload, mode="attention"))
+
+    def test_attention_mode_still_blocks_subagents(self) -> None:
+        for field in ("agent_id", "agent_type"):
+            with self.subTest(field=field):
+                payload = _stop_payload(hook_event_name="Notification", **{field: "x"})
+                self.assertFalse(MODULE.should_notify(payload, mode="attention"))
+
+    def test_stop_mode_rejects_attention_events(self) -> None:
+        payload = _stop_payload(hook_event_name="Notification")
+        self.assertFalse(MODULE.should_notify(payload))
+
+    def test_shell_dispatches_event_to_notification_kind(self) -> None:
+        """notify-done.sh 的事件分发：DRY_RUN 下打印 mode/title/line/speech 四行。"""
+        cases = {
+            "Stop": ("stop", "任务已完成"),
+            "Notification": ("attention", "需要你确认"),
+            "PermissionRequest": ("attention", "需要你确认"),
+        }
+        for event, (mode, status) in cases.items():
+            with self.subTest(event=event):
+                out = _run_notify(_stop_payload(hook_event_name=event))
+                self.assertEqual(out[0], mode)
+                self.assertIn(status, out[1])
+
+    def test_idle_prompt_is_suppressed(self) -> None:
+        """idle_prompt 在每次回复完约 60s 后触发——放行就等于每个任务响两次。"""
+        payload = _stop_payload(
+            hook_event_name="Notification", notification_type="idle_prompt"
+        )
+        self.assertFalse(MODULE.should_notify(payload, mode="attention"))
+
+    def test_noisy_notification_types_are_suppressed(self) -> None:
+        for kind in (
+            "auth_success",
+            "elicitation_complete",
+            "elicitation_response",
+            "agent_completed",
+            "quota_auto_resume_started",
+        ):
+            with self.subTest(kind=kind):
+                payload = _stop_payload(
+                    hook_event_name="Notification", notification_type=kind
+                )
+                self.assertFalse(MODULE.should_notify(payload, mode="attention"))
+
+    def test_blocking_notification_types_are_allowed(self) -> None:
+        for kind in ("permission_prompt", "elicitation_dialog", "agent_needs_input"):
+            with self.subTest(kind=kind):
+                payload = _stop_payload(
+                    hook_event_name="Notification", notification_type=kind
+                )
+                self.assertTrue(MODULE.should_notify(payload, mode="attention"))
+
+    def test_unknown_notification_type_fails_open(self) -> None:
+        """拒绝列表而非允许列表：漏掉要你拍板的时刻比多响一次贵得多。"""
+        payload = _stop_payload(
+            hook_event_name="Notification", notification_type="some_future_type"
+        )
+        self.assertTrue(MODULE.should_notify(payload, mode="attention"))
+
+    def test_shell_speaks_what_is_being_asked(self) -> None:
+        """没有 message 字段时，播报词得靠 notification_type / tool_name 撑起信息量。"""
+        cases = [
+            ({"notification_type": "permission_prompt"}, "需要你授权"),
+            ({"notification_type": "agent_needs_input"}, "后台任务需要你输入"),
+            ({"tool_name": "AskUserQuestion"}, "有问题要你选"),
+            ({"tool_name": "ExitPlanMode"}, "计划待你批准"),
+        ]
+        for extra, expected in cases:
+            event = "PreToolUse" if "tool_name" in extra else "Notification"
+            with self.subTest(expected=expected):
+                out = _run_notify(_stop_payload(hook_event_name=event, **extra))
+                self.assertIn(expected, out[1])
+                self.assertTrue(out[3].endswith(expected))
+
+    def test_shell_banner_prefers_notification_message(self) -> None:
+        """英文 message 只进横幅；朗读保持中文短句，否则中文神经音念得含混。"""
+        message = "Claude needs your permission to use Bash"
+        out = _run_notify(
+            _stop_payload(hook_event_name="Notification", message=message)
+        )
+        self.assertEqual(out[2], message)
+        self.assertTrue(out[3].endswith("需要你确认"))
+        self.assertNotIn(message, out[3])
+
+    def test_shell_ignores_unrelated_events(self) -> None:
+        for event in ("PostToolUse", "UserPromptSubmit", "SessionEnd"):
+            with self.subTest(event=event):
+                self.assertEqual(_run_notify(_stop_payload(hook_event_name=event)), [])
+
+    def test_pretooluse_on_ordinary_tool_is_suppressed(self) -> None:
+        """matcher 漏写时 PreToolUse 会对每个工具触发——脚本自己也要挡住。"""
+        for tool in ("Bash", "Edit", "Read"):
+            with self.subTest(tool=tool):
+                payload = _stop_payload(hook_event_name="PreToolUse", tool_name=tool)
+                self.assertFalse(MODULE.should_notify(payload, mode="attention"))
+                self.assertEqual(_run_notify(payload), [])
 
     def test_shell_silently_stops_before_notification_for_subagent(self) -> None:
         result = subprocess.run(
