@@ -156,6 +156,7 @@ link_file "$repo_root/.claude/settings.local.json" "$HOME/.claude/settings.local
 link_file "$repo_root/.claude/skills/cryptostruct-market-data" "$HOME/.claude/skills/cryptostruct-market-data"
 link_file "$repo_root/.codex/hooks.json" "$HOME/.codex/hooks.json"
 link_file "$repo_root/.codex/bin/codex-pane-title.py" "$HOME/.codex/bin/codex-pane-title.py"
+link_file "$repo_root/.codex/bin/codex-thread-name.py" "$HOME/.codex/bin/codex-thread-name.py"
 link_file "$repo_root/.codex/bin/codex-notify-done.sh" "$HOME/.codex/bin/codex-notify-done.sh"
 link_file "$repo_root/.codex/rules/default.rules" "$HOME/.codex/rules/default.rules"
 chmod +x "$repo_root/install.sh" "$repo_root/.claude/hooks/notify-done.sh" \
@@ -330,8 +331,9 @@ PY
 
 # ---------------------------------------------------------------------------
 # ~/.codex/config.toml 含机器级 trust_level / hooks 信任哈希，不能直接软链接模板。
-# 只用模板覆盖 model / model_reasoning_effort / [mcp_servers.openspec] 三段，并移除
-# 旧式 notify（提醒已迁到 Stop / PermissionRequest hooks），保留本机其余原有段。
+# 只用模板覆盖 model / model_reasoning_effort / [tui].terminal_title /
+# [mcp_servers.openspec]；仅移除旧式 codex-notify-done.sh 入口，
+# 保留其他 notify（包括桌面通知）与其余本机专属段。
 # 已有文件先备份，python3 < 3.11（无 tomllib）时不做
 # 破坏性合并，仅在文件不存在时按模板直接生成，存在时保留原样并提示手动核对（脚本开头的
 # pick_python 已尽力找过 3.11+，走到这里说明整台机器上都没有）。
@@ -382,7 +384,7 @@ if tomllib is None:
     print("[agent-config] 当前 python3 没有内置 tomllib（< 3.11），跳过 ~/.codex/config.toml 的安全合并。", file=sys.stderr)
     if existing_path_str:
         print("[agent-config] 已保留现有 ~/.codex/config.toml，未做修改；请手动核对模板 .codex/config.toml 中的", file=sys.stderr)
-        print("                model / model_reasoning_effort / [mcp_servers.openspec] 是否需要同步，并手动移除旧式 notify。", file=sys.stderr)
+        print("                model / model_reasoning_effort / [tui].terminal_title / [mcp_servers.openspec] 是否需要同步；旧式 codex-notify-done.sh 入口需手动移除。", file=sys.stderr)
     else:
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(parsable_template_text, encoding="utf-8")
@@ -458,7 +460,11 @@ if existing_path_str:
         raise SystemExit(1)
     existing["model"] = template["model"]
     existing["model_reasoning_effort"] = template["model_reasoning_effort"]
-    existing.pop("notify", None)
+    existing.setdefault("tui", {})["terminal_title"] = template["tui"]["terminal_title"]
+    notify = existing.get("notify")
+    if isinstance(notify, list) and notify and isinstance(notify[-1], str):
+        if Path(notify[-1]).name == "codex-notify-done.sh":
+            existing.pop("notify")
     mcp_servers = existing.setdefault("mcp_servers", {})
     mcp_servers["openspec"] = mcp_openspec_table
     result = existing

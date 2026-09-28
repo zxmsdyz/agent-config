@@ -1,17 +1,6 @@
 {
-  "description": "Codex 会话自动命名与终态提醒",
+  "description": "Codex 原生会话名兜底与终态提醒",
   "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.codex/bin/codex-pane-title.py",
-            "timeout": 5
-          }
-        ]
-      }
-    ],
     "UserPromptSubmit": [
       {
         "hooks": [

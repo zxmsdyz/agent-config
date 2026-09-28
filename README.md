@@ -8,15 +8,16 @@
 
 | 仓库内 | 部署到 | 作用 |
 |---|---|---|
-| `.tmux.conf` | `~/.tmux.conf` | tmux 配置；开启 `automatic-rename`，窗口名自动跟随 Claude Code 当前任务摘要（取 `pane_title` 剥掉 spinner），新 tab 不再是 `bash`、无需手动改名；pane 边框右端显示该 pane 的 CC peer 地址（见下一行脚本） |
+| `.tmux.conf` | `~/.tmux.conf` | tmux 配置；窗口名跟随 `pane_title`，只剥离明确的 spinner，保留正常标题首字；pane 边框右端显示 Claude Code peer 地址 |
 | `.claude/bin/tmux-cc-peer-label.sh` | `~/.claude/bin/tmux-cc-peer-label.sh` | 被 `pane-border-format` 的 `#()` 调用，查 `~/.claude/sessions/<pid>.json` 反查该 pane 的 Claude Code peer 地址：`⇄ 名字 sid` = 已注册 peer messaging（`SendMessage({to:"名字"})` 可直达）；`· 名字 sid (no-msg)` = 有会话但没开 messaging socket，`ListAgents` 看不到它 |
 | `.claude/settings.json` | `~/.claude/settings.json` | Claude Code 设置；`Stop`（任务完成）、`Notification`（等权限 / MCP 表单）、`PreToolUse`（matcher 限定 `AskUserQuestion｜ExitPlanMode`）三个 hook 都指向下面的脚本 |
 | `.claude/hooks/notify-done.sh` | `~/.claude/hooks/notify-done.sh` | 通知入口：自动判断 macOS / WSL / Linux，选择对应的通知和语音实现。按 `hook_event_name` 分发成「任务已完成」与「需要你确认」两类；subagent 完成与「等后台活」的中途停顿保持静默。`CLAUDE_NOTIFY_DRY_RUN=1` 只打印 mode/标题/正文/播报词四行，不弹窗不发声 |
 | `.claude/hooks/claude-notify-root-turn.py` | 随 `notify-done.sh` 同目录 | payload 过滤器，分 `stop` / `attention` 两种 mode。共同拦掉 subagent（`agent_id`/`agent_type`、`subagents/` 下的 transcript）；`stop` 额外拦 `background_tasks` 还有在飞任务的回合，`attention` 额外拦 `idle_prompt` 等噪声通知类型与非阻塞工具。每次静音记一行到 `~/.claude/notify-skip.log` |
 | `.claude/hooks/notify.ps1` | 随 `notify-done.sh` 同目录 | 弹 Windows toast + 用 WinRT OneCore 嗓音 **Yaoyao（女声）** 朗读任务名；找不到该嗓音则退回默认 |
-| `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `SessionStart` + `UserPromptSubmit` hook；仅交互式 TUI 按 chat 的 `session_id` 重置并生成任务标题，`codex exec/review` 不会改名 |
-| `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 新 chat（含 `/clear`）先清旧标题，首轮再注入“约 20 字，优先包含 venue、策略/通道与动作”的语义命名指令；同 chat 的后续追问不覆盖，旧轮次也不能越过 `/clear` 回写 |
-| `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `Stop` / `PermissionRequest` hook 与旧版 `notify` 入口；按系统选择通知和语音，旧版 subagent 完成保持静默 |
+| `.codex/hooks.json` | `~/.codex/hooks.json` | Codex `UserPromptSubmit` / `Stop` / `PermissionRequest` hook；原生名称优先，缺名时请求语义标题 |
+| `.codex/bin/codex-pane-title.py` | `~/.codex/bin/codex-pane-title.py` | 按 hook 的 `session_id` 核验 TUI 能力文件与根会话，只读查询原生名称；为空时注入语义命名指令，由原生 `set_thread_title` 工具设置当前会话标题；不读取继承的 `TMUX_PANE` |
+| `.codex/bin/codex-thread-name.py` | `~/.codex/bin/codex-thread-name.py` | 用 hook 的 `session_id` 精确只读查询本机 `state_5.sqlite` 的 `threads.name`；无短名就退回状态词，不借其他 pane 标题 |
+| `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `Stop` / `PermissionRequest` hook 与旧版 `notify` 入口；语音读对应会话短名和状态，保留桌面通知，旧版 subagent 完成保持静默 |
 | `.codex/rules/default.rules` | `~/.codex/rules/default.rules` | Codex 用户级规则；允许 `git merge` 免二次确认 |
 | `.claude/bin/claude-wrapper.sh` | `~/.claude/bin/claude-wrapper.sh` | 定义 `claude()` shell 函数，默认加 `--dangerously-skip-permissions` 并拒绝 `/mnt/*` 下的 Windows 版 claude 接管 WSL 仓库；bash / zsh 双兼容（纯 POSIX 循环遍历 `$PATH`，不用 `type -aP` / process substitution） |
 | `.claude/bin/rc-debug.sh` | `~/.claude/bin/rc-debug.sh` | remote-control 断连排障：带 `--debug-file` 启动 + 后台采样 TCP 连接状态 |
@@ -59,7 +60,7 @@ marker 包裹区间幂等注入（见上表 `shell/rc.snippet`），不是 symli
 
 ### codex config.toml 合并策略
 
-`~/.codex/config.toml` 除了 `model` / `model_reasoning_effort` / `notify` /
+`~/.codex/config.toml` 除了 `model` / `model_reasoning_effort` / `notify` / `[tui].terminal_title` /
 `[mcp_servers.openspec]` 这几个跨机器通用字段外，还含机器专属的
 `[projects."<本机路径>"]` trust_level、`[hooks.state...]` 信任哈希、
 `[tui.model_availability_nux]`、`[notice.model_migrations]`，不能直接整体覆盖或
@@ -70,15 +71,14 @@ symlink 模板。`install.sh` 的处理方式：
 3.9.6，但只要机器上另装了 3.11+，合并就照常生效，**不需要**为此调整 PATH。
 
 1. 若探测到带 `tomllib` 的 python3（3.11+）：解析本机已有的 `config.toml`（若存在），
-   只覆盖 `model` / `model_reasoning_effort` / `notify` / `[mcp_servers.openspec]`
-   四段（`notify` 里的路径和 `mcp_servers.openspec.command` 会替换成本机 `$HOME`
-   与实际探测到的 openspec 可执行文件），其余段原样保留后写回；写回前会用
-   `tomllib.loads()` 自检一遍，解析失败才落盘。原文件会先备份成
-   `config.toml.bak.<timestamp>`。
+   只覆盖 `model` / `model_reasoning_effort` / `[tui].terminal_title` / `[mcp_servers.openspec]`；仅移除指向旧 `codex-notify-done.sh` 的 `notify`，保留其他桌面通知入口。
+   其中 `mcp_servers.openspec.command` 会替换成实际探测到的可执行文件；其余段原样保留后写回；写回前会用
+   `tomllib.loads()` 自检一遍，解析成功后才落盘。原文件会先备份成
+   `config.toml.bak.<timestamp>`。`[tui]` 里的其他设置原样保留。
 2. 若本机没有该文件：直接按模板生成。
 3. 若整台机器都找不到 3.11+ 的 python3：**不做合并**——已有文件保持原样不动，
-   只在终端提示需要手动核对 `model` / `model_reasoning_effort` / `notify` /
-   `[mcp_servers.openspec]` 是否要同步；没有旧文件时才按模板直接生成（不做
+   只在终端提示需要手动核对 `model` / `model_reasoning_effort` / `[tui].terminal_title` /
+   `[mcp_servers.openspec]`，并手动移除指向旧 `codex-notify-done.sh` 的 `notify`；没有旧文件时才按模板直接生成（不做
    TOML 解析校验）。装一个 3.11+ 的 python3 即可恢复合并，无需其他配置。
 
 > 已知限制：合并是「解析 → 重新序列化」，**`~/.codex/config.toml` 里的注释会在合并后丢失**
@@ -101,8 +101,7 @@ symlink 模板。`install.sh` 的处理方式：
 - edge-tts（微软自然神经音·晓晓）由 `install.sh` 自动建在仓库内 `.venv/`（已 gitignore，幂等、装不上只警告不阻断）。WSL/国内网络需 `https_proxy`/`http_proxy` 才能连 wss；macOS 本机实测可直连，无代理也会走神经音。缺失时退回本地合成音（macOS=Tingting，WSL=WinRT Yaoyao），不会哑火。
 - WSL 的 Windows toast 需 PowerShell 模块 `BurntToast`（`Install-Module BurntToast`），原有逻辑保持不变。
 - 原生 Linux 通知优先使用 `notify-send`，MP3 播放使用 `mpv`（存在时）。
-- `~/.codex/config.toml` 的 `notify` 需使用当前用户的绝对路径，例如 macOS 上
-  `notify = ["bash", "/Users/<用户名>/.codex/bin/codex-notify-done.sh"]`。
+- Codex TUI 使用原生 `thread-name` 终端标题；原生名称为空时，`UserPromptSubmit` hook 引导 Codex 概括任务并调用原生标题工具。能力文件和会话 ID 将此行为限定在 TUI 根会话，`exec` / `review` / subagent 不改名；`/clear` 后新会话独立命名。通知脚本靠 hook 会话 ID 读取同一个短名，不依赖继承的 `TMUX_PANE`。
 - Codex 首次发现或脚本变更后会要求审核 hook；在 Codex 内运行 `/hooks` 并信任该用户级 hook。
 - `git`：用于自动安装 tpm。缺失时脚本只警告，`.tmux.conf` 里的插件不会生效。
 - `tmux`：未安装时脚本会跳过插件同步并提示；装好 tmux 后重跑 `install.sh` 即可补上。

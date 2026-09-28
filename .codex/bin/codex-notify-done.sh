@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Codex 终态提醒：兼容 macOS、WSL 与原生 Linux，并朗读当前 tmux 任务名。
+# Codex 终态提醒：按会话 ID 朗读原生短名，兼容 macOS、WSL 与 Linux。
 
 if [ "$#" -gt 0 ]; then
   payload="$1"
@@ -45,18 +45,8 @@ esac
 VOICE="zh-CN-XiaoxiaoNeural"
 title="Codex $status_text"
 line="$status_text"
-
-if [ -n "${TMUX_PANE:-}" ] && command -v tmux >/dev/null 2>&1; then
-  sess=$(tmux display-message -p -t "$TMUX_PANE" '#S' 2>/dev/null)
-  task=$(tmux display-message -p -t "$TMUX_PANE" '#W' 2>/dev/null)
-  [ -n "$sess" ] && title="[$sess] Codex $status_text"
-  [ -n "$task" ] && line="$task"
-fi
-
-if [ "$line" = "$status_text" ]; then
-  summary=$(python3 -c 'import json,sys; p=json.loads(sys.argv[1]); xs=p.get("input-messages", []); print(" ".join(xs).strip()[:80])' "$payload" 2>/dev/null)
-  [ -n "$summary" ] && line="$summary"
-fi
+task=$(printf '%s' "$payload" | python3 "$selfdir/codex-thread-name.py" 2>/dev/null)
+[ -n "$task" ] && line="$task"
 
 if [ "$line" = "$status_text" ]; then
   speech="$status_text"
@@ -83,9 +73,13 @@ fi
 
 repo_root=$(cd "$selfdir/../.." && pwd -P)
 notify_ps1="$repo_root/.claude/hooks/notify.ps1"
-edge_python="$repo_root/.venv/bin/python3"
-mp3="$selfdir/_tts.mp3"
-rm -f "$mp3"
+edge_python="${CODEX_NOTIFY_EDGE_PYTHON:-$repo_root/.venv/bin/python3}"
+tts_dir=$(mktemp -d "${TMPDIR:-/tmp}/codex-notify.XXXXXX" 2>/dev/null) || tts_dir=""
+mp3=""
+if [ -n "$tts_dir" ]; then
+  mp3="$tts_dir/voice.mp3"
+  trap 'rm -f "$mp3"; rmdir "$tts_dir"' EXIT
+fi
 
 proxy="${https_proxy:-${http_proxy:-}}"
 run_with_timeout() {
@@ -94,7 +88,7 @@ run_with_timeout() {
   else "$@"
   fi
 }
-if [ -x "$edge_python" ]; then
+if [ -n "$mp3" ] && [ -x "$edge_python" ]; then
   if [ -n "$proxy" ]; then
     run_with_timeout env -u all_proxy "$edge_python" -m edge_tts --proxy "$proxy" --voice "$VOICE" \
       --text "$speech" --write-media "$mp3" >/dev/null 2>&1
