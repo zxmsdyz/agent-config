@@ -1,0 +1,11 @@
+{
+  "agy-pane-title": {
+    "PreInvocation": [
+      {
+        "type": "command",
+        "command": "python3 ~/.gemini/bin/agy-pane-title.py --hook",
+        "timeout": 5
+      }
+    ]
+  }
+}

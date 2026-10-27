@@ -162,7 +162,39 @@ link_file "$repo_root/.codex/rules/default.rules" "$HOME/.codex/rules/default.ru
 chmod +x "$repo_root/install.sh" "$repo_root/.claude/hooks/notify-done.sh" \
   "$repo_root/.claude/bin/tmux-cc-peer-label.sh" "$repo_root/.claude/bin/claude-wrapper.sh" \
   "$repo_root/.claude/bin/rc-debug.sh" "$repo_root/.claude/bin/rc-disconnect-snapshot.sh" \
-  "$repo_root/.claude/bin/statusline-agent-name.sh" "$repo_root/.codex/bin/"*
+  "$repo_root/.claude/bin/statusline-agent-name.sh" "$repo_root/.codex/bin/"* \
+  "$repo_root/.gemini/bin/agy-pane-title.py"
+
+# 探测本机原生 agy（WSL 下跳过 /mnt/* 的 Windows 版可执行文件；兼容尚未进当前 PATH 的 ~/.local/bin/agy）。
+find_native_agy() {
+  rest="$PATH"
+  while [ -n "$rest" ]; do
+    dir="${rest%%:*}"
+    case "$rest" in
+      *:*) rest="${rest#*:}" ;;
+      *)   rest="" ;;
+    esac
+    [ -n "$dir" ] || continue
+    case "$dir" in
+      /mnt/*) continue ;;
+    esac
+    if [ -x "$dir/agy" ] && [ ! -d "$dir/agy" ]; then
+      printf '%s' "$dir/agy"
+      return 0
+    fi
+  done
+  for candidate in "$HOME/.local/bin/agy" "$HOME/bin/agy"; do
+    if [ -x "$candidate" ] && [ ! -d "$candidate" ]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+agy_bin=$(find_native_agy || true)
+if [ -n "$agy_bin" ]; then
+  link_file "$repo_root/.gemini/bin/agy-pane-title.py" "$HOME/.gemini/bin/agy-pane-title.py"
+fi
 
 # .tmux.conf 末尾的 `run '~/.tmux/plugins/tpm/tpm'` 依赖 tpm。tpm 缺失时 tmux **不报错**，
 # 插件（resurrect / continuum）只是静默不加载——比报错更难发现，所以这里主动补齐。
@@ -328,6 +360,97 @@ settings = expand_home(settings)
 target.parent.mkdir(parents=True, exist_ok=True)
 target.write_text(json.dumps(settings, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 PY
+
+# ---------------------------------------------------------------------------
+# 仅在本机安装了原生 agy 时同步 ~/.gemini/antigravity-cli/settings.json 与 ~/.gemini/config/hooks.json。
+# settings.json 含本机 trustedWorkspaces / colorScheme 等用户状态，hooks.json 也可能有本机其他自定义 hook，
+# 两者均采用「备份 + 合并写入」策略：保留本机其余顶层字段/hook，仅同步模板声明的 title 与 agy-pane-title hook，
+# 并将 ~/ 展开为 $HOME/。
+# ---------------------------------------------------------------------------
+if [ -n "$agy_bin" ]; then
+  agy_settings_target="$HOME/.gemini/antigravity-cli/settings.json"
+  agy_settings_existing=""
+  mkdir -p "$HOME/.gemini/antigravity-cli"
+  if [ -e "$agy_settings_target" ] && [ ! -L "$agy_settings_target" ]; then
+    mkdir -p "$backup_root"
+    agy_settings_backup=$(backup_path "$agy_settings_target")
+    cp "$agy_settings_target" "$agy_settings_backup"
+    echo "已备份: $agy_settings_target -> $agy_settings_backup"
+    agy_settings_existing="$agy_settings_target"
+  elif [ -L "$agy_settings_target" ]; then
+    rm "$agy_settings_target"
+  fi
+
+  agy_hooks_target="$HOME/.gemini/config/hooks.json"
+  agy_hooks_existing=""
+  mkdir -p "$HOME/.gemini/config"
+  if [ -e "$agy_hooks_target" ] && [ ! -L "$agy_hooks_target" ]; then
+    mkdir -p "$backup_root"
+    agy_hooks_backup=$(backup_path "$agy_hooks_target")
+    cp "$agy_hooks_target" "$agy_hooks_backup"
+    echo "已备份: $agy_hooks_target -> $agy_hooks_backup"
+    agy_hooks_existing="$agy_hooks_target"
+  elif [ -L "$agy_hooks_target" ]; then
+    rm "$agy_hooks_target"
+  fi
+
+  export AGENT_CONFIG_AGY_SETTINGS_TEMPLATE="$repo_root/.gemini/antigravity-cli/settings.json"
+  export AGENT_CONFIG_AGY_SETTINGS_TARGET="$agy_settings_target"
+  export AGENT_CONFIG_AGY_SETTINGS_EXISTING="$agy_settings_existing"
+  export AGENT_CONFIG_AGY_HOOKS_TEMPLATE="$repo_root/.gemini/config/hooks.json"
+  export AGENT_CONFIG_AGY_HOOKS_TARGET="$agy_hooks_target"
+  export AGENT_CONFIG_AGY_HOOKS_EXISTING="$agy_hooks_existing"
+  "$python_bin" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+home = os.environ["HOME"]
+
+
+def expand_home(node):
+    if isinstance(node, dict):
+        return {k: expand_home(v) for k, v in node.items()}
+    if isinstance(node, list):
+        return [expand_home(v) for v in node]
+    if isinstance(node, str):
+        return node.replace("~/", home + "/")
+    return node
+
+
+def load_json_dict(path_str: str) -> dict:
+    if not path_str:
+        return {}
+    p = Path(path_str)
+    if not p.exists():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
+settings_template = expand_home(load_json_dict(os.environ["AGENT_CONFIG_AGY_SETTINGS_TEMPLATE"]))
+settings_target = Path(os.environ["AGENT_CONFIG_AGY_SETTINGS_TARGET"])
+settings_merged = load_json_dict(os.environ.get("AGENT_CONFIG_AGY_SETTINGS_EXISTING", ""))
+for key, value in settings_template.items():
+    settings_merged[key] = value
+settings_target.parent.mkdir(parents=True, exist_ok=True)
+settings_target.write_text(json.dumps(settings_merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+hooks_template = expand_home(load_json_dict(os.environ["AGENT_CONFIG_AGY_HOOKS_TEMPLATE"]))
+hooks_target = Path(os.environ["AGENT_CONFIG_AGY_HOOKS_TARGET"])
+hooks_merged = load_json_dict(os.environ.get("AGENT_CONFIG_AGY_HOOKS_EXISTING", ""))
+for key, value in hooks_template.items():
+    hooks_merged[key] = value
+hooks_target.parent.mkdir(parents=True, exist_ok=True)
+hooks_target.write_text(json.dumps(hooks_merged, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+PY
+  echo "已配置 Antigravity CLI (agy): $agy_bin"
+else
+  echo "[agent-config] 未检测到本机原生 agy，已跳过 Antigravity CLI 配置；装好 agy 后重跑 install.sh 即可。"
+fi
 
 # ---------------------------------------------------------------------------
 # ~/.codex/config.toml 含机器级 trust_level / hooks 信任哈希，不能直接软链接模板。

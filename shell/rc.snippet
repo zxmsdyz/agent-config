@@ -7,6 +7,15 @@ alias cxyolo="codex --dangerously-bypass-approvals-and-sandbox"
 # Claude CLI 的无沙箱快捷命令。
 alias ccyolo="claude --dangerously-skip-permissions"
 
+# WSL / Linux 下 agy 默认装在 ~/.local/bin/agy；若该目录存在且未进 PATH，前置补入以免非登录 pane 找不到或落到 /mnt/c。
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) ;;
+  *) [ -d "$HOME/.local/bin" ] && export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+
+# Antigravity CLI (agy) 的全自动权限快捷命令。
+alias agyolo="agy --dangerously-skip-permissions"
+
 # claude wrapper：默认加 --dangerously-skip-permissions，并**拒绝** /mnt/c 下的 Windows 版
 # claude.exe 接管 WSL 仓库（它用 Git Bash 跑 hook → python3 命中商店 stub → qflow 的
 # PreToolUse guard 全部 fail-open）。必须放在 nvm 加载之后。2026-08-14 补挂。

@@ -19,13 +19,16 @@
 | `.codex/bin/codex-thread-name.py` | `~/.codex/bin/codex-thread-name.py` | 用 hook 的 `session_id` 精确只读查询本机 `state_5.sqlite` 的 `threads.name`；无短名就退回状态词，不借其他 pane 标题 |
 | `.codex/bin/codex-notify-done.sh` | `~/.codex/bin/codex-notify-done.sh` | Codex `Stop` / `PermissionRequest` hook 与旧版 `notify` 入口；语音读对应会话短名和状态，保留桌面通知，旧版 subagent 完成保持静默 |
 | `.codex/rules/default.rules` | `~/.codex/rules/default.rules` | Codex 用户级规则；允许 `git merge` 免二次确认 |
+| `.gemini/bin/agy-pane-title.py` | `~/.gemini/bin/agy-pane-title.py` | Antigravity (`agy`) 终端标题与语义命名助手（仅在检测到本机原生 `agy` 时安装）：无参模式供 `settings.json.title` (`TitleRunner`) 调用输出当前会话标题（由 BubbleTea OSC 2 刷入 `pane_title`）；`--hook` 模式供 `PreInvocation` 校验 TUI 根会话（`presence/<id>.lock` + 非 subagent）并在缺少中文标题或切换任务时注入语义命名指令；`--set` 模式写入会话标题并同步更新当前 tmux pane 标题 |
+| `.gemini/antigravity-cli/settings.json` | 与 `~/.gemini/antigravity-cli/settings.json` 合并 | Antigravity CLI 终端标题配置（`title.command` 指向 `agy-pane-title.py`），仅在检测到本机原生 `agy` 时合并，保留本机 `colorScheme` / `trustedWorkspaces` 等其余字段 |
+| `.gemini/config/hooks.json` | 与 `~/.gemini/config/hooks.json` 合并 | Antigravity `PreInvocation` hook（`agy-pane-title`），仅在检测到本机原生 `agy` 时合并，保留本机其他自定义 hook |
 | `.claude/bin/claude-wrapper.sh` | `~/.claude/bin/claude-wrapper.sh` | 定义 `claude()` shell 函数，默认加 `--dangerously-skip-permissions` 并拒绝 `/mnt/*` 下的 Windows 版 claude 接管 WSL 仓库；bash / zsh 双兼容（纯 POSIX 循环遍历 `$PATH`，不用 `type -aP` / process substitution） |
 | `.claude/bin/rc-debug.sh` | `~/.claude/bin/rc-debug.sh` | remote-control 断连排障：带 `--debug-file` 启动 + 后台采样 TCP 连接状态 |
 | `.claude/bin/rc-disconnect-snapshot.sh` | `~/.claude/bin/rc-disconnect-snapshot.sh` | 手机端报 disconnected 时一键采证（bridge 进程活性 / poll 时间 / environment_id 等） |
 | `.claude/bin/statusline-agent-name.sh` | `~/.claude/bin/statusline-agent-name.sh` | Claude Code `statusLine`：显示本 session 的跨 agent 通信名（查 `~/.claude/sessions/<pid>.json`）+ 当前 git 分支 + model |
 | `.claude/settings.local.json` | `~/.claude/settings.local.json` | 个人 `permissions.allow` 白名单（仅命令前缀级授权，无凭据）。⚠️ 该文件名默认被本机全局 `~/.config/git/ignore` 忽略，本仓库 `.gitignore` 用 `!.claude/settings.local.json` 显式取消忽略 |
 | `.claude/skills/cryptostruct-market-data/` | `~/.claude/skills/cryptostruct-market-data/` | 第三方行情数据技能（整目录 symlink），无凭据，仅文档 + 拉取脚本 |
-| `shell/rc.snippet` | 注入 `~/.bashrc` / `~/.zshrc` | `cxyolo` / `ccyolo` alias + `claude-wrapper.sh` 的 source 行；用 `# >>> agent-config >>>` / `# <<< agent-config <<<` marker 包裹，幂等注入（重复执行 `install.sh` 不会重复追加） |
+| `shell/rc.snippet` | 注入 `~/.bashrc` / `~/.zshrc` | `cxyolo` / `ccyolo` / `agyolo` alias + `claude-wrapper.sh` 的 source 行；用 `# >>> agent-config >>>` / `# <<< agent-config <<<` marker 包裹，幂等注入（重复执行 `install.sh` 不会重复追加） |
 | `.codex/config.toml` | 与 `~/.codex/config.toml` 合并 | 见下方「codex config.toml 合并策略」 |
 
 ## 安装（软链接方式）

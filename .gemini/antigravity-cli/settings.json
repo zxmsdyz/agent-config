@@ -1,0 +1,6 @@
+{
+  "title": {
+    "type": "command",
+    "command": "python3 ~/.gemini/bin/agy-pane-title.py"
+  }
+}
