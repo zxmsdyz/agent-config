@@ -114,7 +114,30 @@ class AgyPaneTitleTest(unittest.TestCase):
         pbtxt = (self.annotations / f"{SESSION}.pbtxt").read_text(encoding="utf-8")
         self.assertIn("配置agyolo与tmux任务自动命名", pbtxt)
 
-        # 3. 无会话标题时默认回退为 agy
+        # 3. 用户在 agy 内通过 /rename 更新 annotations 后，优先同步并返回 /rename 后的名字
+        ann_file = self.annotations / f"{SESSION}.pbtxt"
+        ann_file.write_text('title:"qpilot-ibit-rename"\n', encoding="utf-8")
+        res_renamed = subprocess.run(
+            [sys.executable, str(SCRIPT)],
+            input=json.dumps(
+                {
+                    "conversation_id": SESSION,
+                    "conversation_title": "qpilot-ibit-rename",
+                }
+            ),
+            text=True,
+            capture_output=True,
+            check=False,
+            env=self._env(),
+        )
+        self.assertEqual(res_renamed.returncode, 0, res_renamed.stderr)
+        self.assertEqual(res_renamed.stdout.strip(), "qpilot-ibit-rename")
+        self.assertEqual(
+            (self.titles / f"{SESSION}.txt").read_text(encoding="utf-8").strip(),
+            "qpilot-ibit-rename",
+        )
+
+        # 4. 无会话标题时默认回退为 agy
         res_default = subprocess.run(
             [sys.executable, str(SCRIPT)],
             input=json.dumps({"conversation_id": CHILD}),
